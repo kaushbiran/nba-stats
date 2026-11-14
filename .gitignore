@@ -1,0 +1,16 @@
+# The database is a build artifact — ship scripts/backfill.py instead.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/raw/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+.DS_Store
