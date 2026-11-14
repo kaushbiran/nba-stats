@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA Watcher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F4F6F0;
+  --bar:#DFE8D7;
+  --ink:#1C2416;
+  --ink-soft:#5A6650;
+  --rule:#A8B89E;
+  --rule-faint:#C9D5C0;
+  --pen:#B8342A;
+  --field:#FFFFFF;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Archivo',system-ui,sans-serif;
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px 80px;}
+
+/* ---- masthead: a ruled header strip, like the top of a stat printout ---- */
+.masthead{
+  display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  padding:22px 0 14px;
+  border-bottom:2px solid var(--ink);
+  flex-wrap:wrap;
+}
+.wordmark{
+  font-size:21px;font-weight:700;letter-spacing:-0.025em;margin:0;
+}
+.wordmark em{font-style:normal;color:var(--pen);}
+.coverage{
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---- search: the hero. The field is the product. ---- */
+.searchblock{padding:40px 0 0;position:relative;}
+.prompt{
+  font-size:clamp(28px,4.4vw,42px);
+  font-weight:600;letter-spacing:-0.035em;line-height:1.12;
+  margin:0 0 20px;max-width:17ch;
+}
+.searchrow{position:relative;max-width:620px;}
+#search{
+  width:100%;
+  font-family:'Archivo',sans-serif;
+  font-size:19px;font-weight:500;color:var(--ink);
+  padding:15px 16px 15px 46px;
+  background:var(--field);
+  border:2px solid var(--ink);
+  border-radius:2px;
+}
+#search::placeholder{color:#93A089;font-weight:400;}
+#search:focus{outline:3px solid var(--pen);outline-offset:2px;}
+.magnifier{
+  position:absolute;left:16px;top:50%;transform:translateY(-50%);
+  width:18px;height:18px;pointer-events:none;color:var(--ink-soft);
+}
+
+.suggestions{
+  position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;
+  background:var(--field);border:2px solid var(--ink);border-radius:2px;
+  max-height:330px;overflow:auto;display:none;
+  box-shadow:4px 4px 0 var(--rule-faint);
+}
+.suggestions.open{display:block;}
+.sug{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--rule-faint);
+}
+.sug:last-child{border-bottom:0;}
+.sug[aria-selected="true"],.sug:hover{background:var(--bar);}
+.sug-name{font-weight:500;}
+.sug-meta{
+  font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.sug-group{
+  padding:7px 14px 5px;font-size:12px;font-weight:600;color:var(--ink-soft);
+  background:var(--paper);border-bottom:1px solid var(--rule-faint);
+}
+
+/* ---- preset questions ---- */
+.presets{display:flex;flex-wrap:wrap;gap:7px;margin:18px 0 0;max-width:720px;}
+.chip{
+  font-family:'Archivo',sans-serif;font-size:13.5px;font-weight:500;
+  color:var(--ink);background:transparent;
+  border:1px solid var(--rule);border-radius:2px;
+  padding:6px 11px;cursor:pointer;
+}
+.chip:hover{background:var(--bar);border-color:var(--ink);}
+.chip:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+/* ---- filters: a ruled control strip above the sheet ---- */
+.controls{
+  margin-top:34px;padding:14px 0;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;
+}
+.ctl{display:flex;flex-direction:column;gap:5px;}
+.ctl label{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+select,input[type=number]{
+  font-family:'Archivo',sans-serif;font-size:14px;color:var(--ink);
+  background:var(--field);border:1px solid var(--rule);border-radius:2px;
+  padding:6px 8px;min-height:32px;
+}
+input[type=number]{width:84px;font-family:'IBM Plex Mono',monospace;}
+select:focus,input:focus{outline:2px solid var(--pen);outline-offset:1px;}
+
+.segment{display:flex;border:1px solid var(--rule);border-radius:2px;overflow:hidden;}
+.segment button{
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  background:var(--field);color:var(--ink-soft);
+  border:0;border-right:1px solid var(--rule);padding:7px 10px;cursor:pointer;
+}
+.segment button:last-child{border-right:0;}
+.segment button.on{background:var(--ink);color:var(--paper);font-weight:600;}
+.segment button:focus-visible{outline:2px solid var(--pen);outline-offset:-2px;}
+
+.statgroups{display:flex;gap:20px;flex-wrap:wrap;}
+.statgroup{display:flex;flex-direction:column;gap:4px;}
+.grouplabel{font-size:11.5px;color:var(--ink-soft);font-weight:500;}
+.statpick{display:flex;flex-wrap:wrap;gap:4px;max-width:300px;}
+.statpick button{
+  font-family:'IBM Plex Mono',monospace;font-size:12px;
+  background:var(--field);color:var(--ink-soft);
+  border:1px solid var(--rule-faint);border-radius:2px;
+  padding:4px 7px;cursor:pointer;
+}
+.statpick button.on{background:var(--bar);color:var(--ink);border-color:var(--ink);font-weight:600;}
+.statpick button.warn{
+  background:var(--field);color:var(--pen);border-color:var(--pen);
+  font-weight:500;
+}
+
+/* ---- the sheet ---- */
+.sheethead{
+  display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+  margin:26px 0 0;flex-wrap:wrap;
+}
+.sheettitle{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.02em;}
+.rowcount{
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;
+}
+
+.sheetscroll{overflow-x:auto;margin-top:10px;border-top:2px solid var(--ink);}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
+thead th{
+  position:sticky;top:0;background:var(--paper);
+  font-size:12.5px;font-weight:600;color:var(--ink-soft);
+  text-align:right;padding:9px 10px;white-space:nowrap;
+  border-bottom:1px solid var(--ink);cursor:pointer;user-select:none;
+}
+thead th:first-child,thead th.text{text-align:left;}
+thead th:hover{color:var(--ink);}
+thead th.sorted{color:var(--pen);}
+thead th .caret{font-size:9px;margin-left:3px;}
+tbody td{
+  padding:7px 10px;text-align:right;white-space:nowrap;
+  font-family:'IBM Plex Mono',monospace;font-size:13.5px;
+}
+tbody td.text{
+  text-align:left;font-family:'Archivo',sans-serif;font-size:14.5px;font-weight:500;
+}
+tbody tr:nth-child(even){background:var(--bar);}
+tbody tr:hover{background:#D2DEC8;}
+td.rank{color:var(--ink-soft);font-size:12px;width:34px;}
+
+/* ---- projection panel ---- */
+.project{margin-top:30px;border-top:2px solid var(--ink);padding-top:14px;}
+.projecthead{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;
+}
+.projectctl{display:flex;gap:6px;flex-wrap:wrap;}
+.projectctl select,.projectctl input{min-height:30px;font-size:13.5px;padding:4px 7px;}
+.projectctl input{width:90px;}
+
+.projectbody{margin-top:16px;}
+.projgrid{display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start;}
+
+.bignum{display:flex;align-items:baseline;gap:9px;}
+.bignum .value{
+  font-family:'IBM Plex Mono',monospace;font-size:52px;font-weight:600;
+  letter-spacing:-0.03em;line-height:1;font-variant-numeric:tabular-nums;
+}
+.bignum .unit{font-size:14px;color:var(--ink-soft);font-weight:500;}
+.spread{
+  font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-soft);
+  margin-top:7px;font-variant-numeric:tabular-nums;
+}
+
+/* the distribution, drawn as a range bar rather than a point */
+.distro{flex:1;min-width:260px;max-width:430px;}
+.distro-track{
+  position:relative;height:38px;border:1px solid var(--rule);
+  background:var(--field);border-radius:2px;overflow:hidden;
+}
+.band95{position:absolute;top:0;bottom:0;background:var(--bar);}
+.band68{position:absolute;top:0;bottom:0;background:#C2D4B6;}
+.centerline{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);}
+.lineMark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--pen);}
+.distro-scale{
+  display:flex;justify-content:space-between;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);
+  margin-top:4px;font-variant-numeric:tabular-nums;
+}
+.distro-key{font-size:12px;color:var(--ink-soft);margin-top:7px;}
+
+.oddsrow{
+  display:flex;gap:28px;flex-wrap:wrap;margin-top:18px;padding-top:14px;
+  border-top:1px solid var(--rule-faint);
+}
+.oddsitem .k{font-size:12px;color:var(--ink-soft);}
+.oddsitem .v{
+  font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
+
+.adjlist{
+  margin-top:14px;font-size:13px;color:var(--ink-soft);
+  display:flex;gap:20px;flex-wrap:wrap;
+}
+.adjlist b{color:var(--ink);font-weight:600;}
+
+.caveats{
+  margin-top:16px;padding:11px 13px;background:var(--field);
+  border:1px solid var(--rule-faint);border-left:3px solid var(--rule);
+  border-radius:2px;font-size:12.5px;color:var(--ink-soft);max-width:640px;
+}
+.caveats ul{margin:5px 0 0;padding-left:17px;}
+.caveats li{margin:2px 0;}
+
+/* ---- states ---- */
+.notice{
+  margin-top:26px;padding:16px 18px;
+  border:1px solid var(--rule);border-left:3px solid var(--pen);
+  background:var(--field);border-radius:2px;max-width:620px;
+}
+.notice h2{font-size:15px;font-weight:600;margin:0 0 6px;}
+.notice p{margin:0 0 8px;font-size:14px;color:var(--ink-soft);}
+.notice p:last-child{margin-bottom:0;}
+.notice code{
+  font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  background:var(--bar);padding:2px 5px;border-radius:2px;
+}
+.loading{
+  margin-top:26px;font-family:'IBM Plex Mono',monospace;
+  font-size:13px;color:var(--ink-soft);
+}
+.hidden{display:none !important;}
+
+footer{
+  margin-top:50px;padding-top:14px;border-top:1px solid var(--rule-faint);
+  font-size:12.5px;color:var(--ink-soft);
+}
+
+@media (max-width:620px){
+  .controls{gap:16px;}
+  .statpick{max-width:100%;}
+  .prompt{max-width:100%;}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <h1 class="wordmark">NBA Watcher</h1>
+    <div class="coverage" id="coverage">loading</div>
+  </header>
+
+  <section class="searchblock">
+    <h2 class="prompt">Who are you looking up?</h2>
+
+    <div class="searchrow">
+      <svg class="magnifier" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.8 12.8 18 18"/>
+      </svg>
+      <input id="search" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Type a player's name"
+             role="combobox" aria-expanded="false" aria-controls="suggestions"
+             aria-label="Search for a player">
+      <div class="suggestions" id="suggestions" role="listbox"></div>
+    </div>
+
+    <div class="presets" id="presets"></div>
+  </section>
+
+  <section class="controls" id="controls">
+    <div class="ctl">
+      <label for="season">Season</label>
+      <select id="season"><option value="">All seasons</option></select>
+    </div>
+    <div class="ctl">
+      <label for="seasontype">Games</label>
+      <select id="seasontype"></select>
+    </div>
+    <div class="ctl">
+      <label>Rate</label>
+      <div class="segment" id="permode" role="group" aria-label="Rate"></div>
+    </div>
+    <div class="ctl">
+      <label for="mingames">Min games</label>
+      <input id="mingames" type="number" min="0" step="1" value="0">
+    </div>
+    <div class="ctl">
+      <label>Columns</label>
+      <div class="statgroups">
+        <div class="statgroup">
+          <span class="grouplabel">Regular</span>
+          <div class="statpick" id="statpick"></div>
+        </div>
+        <div class="statgroup">
+          <span class="grouplabel">Advanced</span>
+          <div class="statpick" id="statpickadv"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="loading hidden" id="loading">reading the sheet…</div>
+
+  <div class="notice hidden" id="notice"></div>
+
+  <section id="results" class="hidden">
+    <div class="sheethead">
+      <h2 class="sheettitle" id="sheettitle">Results</h2>
+      <div class="rowcount" id="rowcount"></div>
+    </div>
+    <div class="sheetscroll">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="project hidden" id="projectpanel">
+    <div class="projecthead">
+      <h2 class="sheettitle">Next game</h2>
+      <div class="projectctl" id="projectctls">
+        <select id="projstat" aria-label="Stat to project"></select>
+        <select id="projopp" aria-label="Opponent"><option value="">Any opponent</option></select>
+        <select id="projvenue" aria-label="Venue">
+          <option value="">Either venue</option>
+          <option value="home">At home</option>
+          <option value="away">On the road</option>
+        </select>
+        <input id="projline" type="number" step="0.5" placeholder="Line"
+               aria-label="Line to compare against">
+      </div>
+    </div>
+
+    <div class="projectbody" id="projectbody"></div>
+  </section>
+
+  <footer>
+    Data from stats.nba.com via nba_api. Percentages are computed from season
+    totals, not averaged across games. Per-100 possessions are estimated.
+  </footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  meta: null,
+  mode: null,            // {kind:'player'|'leaders'|'recipe', ...}
+  perMode: 'per_game',
+  stats: ['pts', 'reb', 'ast'],
+  sort: null,
+  sortAsc: false,
+  rows: [],
+  playerSeasons: null,     // non-null when the dropdown is scoped to one player
+  needsSeasonScope: false,
+};
+
+const PER_MODES = [
+  ['per_game', 'per game'],
+  ['totals',   'totals'],
+  ['per36',    'per 36'],
+  ['per100',   'per 100'],
+];
+
+// Two ways in: browse everyone and sort, or search one player.
+const PRESETS = [
+  {label:'All players', run:() => allPlayers()},
+  {label:'Team ratings', run:() => recipe('team-ratings', {}, 'Team ratings')},
+];
+
+const PRETTY = {
+  gp:'G', pts:'PTS', reb:'REB', oreb:'OREB', dreb:'DREB', ast:'AST', stl:'STL',
+  blk:'BLK', tov:'TOV', pf:'PF', fgm:'FGM', fga:'FGA', fg3m:'3PM', fg3a:'3PA',
+  ftm:'FTM', fta:'FTA', min:'MIN', plus_minus:'+/-', fg_pct:'FG%',
+  fg3_pct:'3P%', ft_pct:'FT%', ts_pct:'TS%', efg_pct:'eFG%',
+  player:'Player', team:'Team', season:'Season', game_date:'Date',
+  double_doubles:'DD', triple_doubles:'TD', games:'Games', best:'Best',
+  first_season:'From', last_season:'To', ppg:'PPG', rpg:'RPG', apg:'APG',
+  total_pts:'Total', ortg:'ORtg', drtg:'DRtg', net_rtg:'Net', wins:'W',
+  losses:'L', win_pct:'W%', home_wins:'Home W', away_wins:'Away W',
+  total_min:'MIN',
+  usg_pct:'USG%', ast_pct:'AST%', ast_ratio:'AST/poss', reb_pct:'REB%',
+  oreb_pct:'OREB%', dreb_pct:'DREB%', stl_pct:'STL%', blk_pct:'BLK%',
+  tov_pct:'TOV%',
+  pts_total:'PTS tot', reb_total:'REB tot', ast_total:'AST tot',
+  stl_total:'STL tot', blk_total:'BLK tot', tov_total:'TOV tot',
+  min_total:'MIN tot', fgm_total:'FGM tot', fga_total:'FGA tot',
+  fg3m_total:'3PM tot', fg3a_total:'3PA tot', ftm_total:'FTM tot',
+  fta_total:'FTA tot', oreb_total:'OREB tot', dreb_total:'DREB tot',
+  pf_total:'PF tot', plus_minus_total:'+/- tot',
+};
+
+// Shown as a tooltip on each column chip, so the advanced ones aren't jargon.
+const STAT_HELP = {
+  usg_pct:'Usage rate: share of team plays this player used while on the floor',
+  ast_pct:"Share of teammates' made field goals this player assisted",
+  ast_ratio:'Assists per 100 possessions this player used',
+  reb_pct:'Share of available rebounds grabbed while on the floor',
+  oreb_pct:'Share of available offensive rebounds grabbed',
+  dreb_pct:'Share of available defensive rebounds grabbed',
+  stl_pct:'Steals per 100 opponent possessions',
+  blk_pct:'Share of opponent two-point attempts blocked',
+  tov_pct:'Turnovers per 100 possessions used',
+  ts_pct:'True shooting: points per shooting possession, counting threes and free throws',
+  efg_pct:'Effective FG%: field goal percentage with threes weighted 1.5',
+};
+
+const TEXT_COLS = new Set(['player','team','season','game_date','from','to']);
+const HIDDEN_COLS = new Set(['player_id','team_id']);
+
+/* ---------- season labels: 2023 is the 2023-24 season ---------- */
+const seasonLabel = (y) => `${y}-${String(y + 1).slice(-2)}`;
+
+/* ---------- boot ---------- */
+async function boot() {
+  try {
+    state.meta = await fetch('/api/meta').then(r => r.json());
+  } catch (e) {
+    showNotice('Can\'t reach the server',
+      '<p>The page loaded but the local server isn\'t responding. Restart it with <code>nbastats serve</code>.</p>');
+    return;
+  }
+
+  const m = state.meta;
+  if (m.empty) {
+    $('coverage').textContent = 'no data';
+    $('controls').classList.add('hidden');
+    showNotice('No seasons loaded yet',
+      '<p>Pull some data first, then refresh this page:</p>' +
+      '<p><code>python3 scripts/backfill.py --start 1996 --end 2025</code></p>');
+    return;
+  }
+
+  const lo = Math.min(...m.seasons), hi = Math.max(...m.seasons);
+  $('coverage').textContent =
+    `${seasonLabel(lo)} to ${seasonLabel(hi)} · ${m.counts.player_games.toLocaleString()} player-games`;
+
+  fillSeasons(m.seasons, hi);
+
+  m.season_types.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t === 'Regular Season' ? 'Regular season' : t;
+    $('seasontype').appendChild(o);
+  });
+
+  PER_MODES.forEach(([val, label]) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.className = val === state.perMode ? 'on' : '';
+    b.onclick = () => {
+      state.perMode = val;
+      [...$('permode').children].forEach(c => c.classList.toggle('on', c === b));
+      rerun();
+    };
+    $('permode').appendChild(b);
+  });
+
+  // Box-score order, not alphabetical: nobody scans for PTS after 3PA.
+  const STAT_ORDER = ['pts','reb','ast','stl','blk','tov','min',
+                      'double_doubles','triple_doubles','fgm','fga',
+                      'fg_pct','fg3m','fg3a','fg3_pct','ftm','fta','ft_pct',
+                      'oreb','dreb','pf','plus_minus'];
+  const ADV_ORDER = ['usg_pct','ts_pct','efg_pct','ast_pct','ast_ratio',
+                     'reb_pct','oreb_pct','dreb_pct','stl_pct','blk_pct','tov_pct'];
+
+  // TS% and eFG% are computed from the box score like any rate stat, but they
+  // read as advanced metrics, so they're grouped where people look for them.
+  const advSet = new Set([...(m.advanced_stats || []), 'ts_pct', 'efg_pct']);
+  const regular = [...m.counting_stats, ...m.rate_stats,
+                   ...(m.derived_counts || [])].filter(s => !advSet.has(s));
+  const order = (list, pref) => [
+    ...pref.filter(s => list.includes(s)),
+    ...list.filter(s => !pref.includes(s)).sort(),
+  ];
+
+  const makeChip = (s, host) => {
+    const b = document.createElement('button');
+    b.textContent = PRETTY[s] || s;
+    b.title = STAT_HELP[s] || s;
+    b.dataset.stat = s;
+    b.className = state.stats.includes(s) ? 'on' : '';
+    b.onclick = () => {
+      const i = state.stats.indexOf(s);
+      if (i >= 0) {
+        // A table with no columns isn't a table. Keep the last one on and say
+        // why, instead of firing a query that can only come back empty.
+        if (state.stats.length === 1) {
+          flashChip(b, 'Keep at least one column');
+          return;
+        }
+        state.stats.splice(i, 1);
+        // Dropping the sorted column: hand the sort to a column still showing.
+        if (state.sort === s) state.sort = state.stats[0];
+      } else {
+        state.stats.push(s);
+      }
+      b.classList.toggle('on', state.stats.includes(s));
+      rerun();
+    };
+    $(host).appendChild(b);
+  };
+
+  order(regular, STAT_ORDER).forEach(s => makeChip(s, 'statpick'));
+  order([...advSet], ADV_ORDER).forEach(s => makeChip(s, 'statpickadv'));
+
+  PRESETS.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = p.label;
+    b.onclick = () => { markChip(b); p.run(); };
+    $('presets').appendChild(b);
+  });
+
+  ['season','seasontype','mingames'].forEach(id => {
+    $(id).addEventListener('change', rerun);
+  });
+
+  // Projection controls
+  m.projectable.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = PRETTY[s] || s;
+    $('projstat').appendChild(o);
+  });
+  const teamList = await fetch('/api/teams').then(r => r.json()).catch(() => ({teams: []}));
+  teamList.teams.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.abbreviation; o.textContent = `vs ${t.abbreviation}`;
+    $('projopp').appendChild(o);
+  });
+  ['projstat','projopp','projvenue'].forEach(id =>
+    $(id).addEventListener('change', loadProjection));
+  let lineTimer = null;
+  $('projline').addEventListener('input', () => {
+    clearTimeout(lineTimer);
+    lineTimer = setTimeout(loadProjection, 350);
+  });
+
+  markChip($('presets').firstElementChild);
+  allPlayers();
+}
+
+/* A brief inline note on the chip itself — closer to the action than a banner
+   at the top of the page, and it clears itself. */
+function flashChip(btn, message) {
+  const original = btn.textContent;
+  btn.textContent = message;
+  btn.classList.add('warn');
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove('warn');
+  }, 1400);
+}
+
+function markChip(active) {
+  [...$('presets').children].forEach(c => c.classList.toggle('on', c === active));
+}
+
+/* ---------- autocomplete ---------- */
+let sugIndex = -1, sugItems = [], searchTimer = null;
+
+$('search').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = $('search').value.trim();
+  if (q.length < 2) return closeSug();
+  searchTimer = setTimeout(() => lookup(q), 140);
+});
+
+$('search').addEventListener('keydown', (e) => {
+  if (!$('suggestions').classList.contains('open')) {
+    if (e.key === 'Enter' && $('search').value.trim().length >= 2) lookup($('search').value.trim());
+    return;
+  }
+  if (e.key === 'ArrowDown') { e.preventDefault(); moveSug(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); moveSug(-1); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (sugIndex >= 0) sugItems[sugIndex].click();
+  } else if (e.key === 'Escape') closeSug();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.searchrow')) closeSug();
+});
+
+async function lookup(q) {
+  const data = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
+  const box = $('suggestions');
+  box.innerHTML = '';
+  if (!data.players.length) {
+    box.innerHTML = '<div class="sug-group">No player by that name in the loaded seasons</div>';
+    openSug(); return;
+  }
+  data.players.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'sug'; d.setAttribute('role', 'option');
+    const span = p.first_season === p.last_season
+      ? seasonLabel(p.first_season)
+      : `${p.first_season}–${p.last_season + 1}`;
+    d.innerHTML = `<span class="sug-name"></span><span class="sug-meta">${span}, ${p.gp} G</span>`;
+    d.querySelector('.sug-name').textContent = p.full_name;
+    d.onclick = () => { $('search').value = p.full_name; closeSug(); markChip(null); showPlayer(p.full_name); };
+    box.appendChild(d);
+  });
+  openSug();
+}
+
+function openSug() {
+  $('suggestions').classList.add('open');
+  $('search').setAttribute('aria-expanded', 'true');
+  sugItems = [...$('suggestions').querySelectorAll('.sug')];
+  sugIndex = -1;
+}
+function closeSug() {
+  $('suggestions').classList.remove('open');
+  $('search').setAttribute('aria-expanded', 'false');
+  sugIndex = -1; sugItems = [];
+}
+function moveSug(step) {
+  if (!sugItems.length) return;
+  if (sugIndex >= 0) sugItems[sugIndex].setAttribute('aria-selected', 'false');
+  sugIndex = (sugIndex + step + sugItems.length) % sugItems.length;
+  sugItems[sugIndex].setAttribute('aria-selected', 'true');
+  sugItems[sugIndex].scrollIntoView({block: 'nearest'});
+}
+
+/* ---------- the season dropdown ----------
+   Its options depend on what you're looking at. Browsing leaders, it lists
+   every season in the database. Looking at one player, it lists only the
+   seasons that player actually played, so the choices are never dead ends. */
+function fillSeasons(seasons, selected) {
+  const sel = $('season');
+  sel.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = state.mode && state.mode.kind === 'player'
+    ? 'Whole career' : 'All seasons';
+  sel.appendChild(all);
+  seasons.forEach(y => {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = seasonLabel(y);
+    sel.appendChild(o);
+  });
+  sel.value = selected === undefined || selected === null ? '' : String(selected);
+}
+
+function restoreAllSeasons() {
+  if (!state.playerSeasons) return;          // already showing the full list
+  state.playerSeasons = null;
+  fillSeasons(state.meta.seasons, Math.max(...state.meta.seasons));
+}
+
+/* ---------- the three things the app can show ---------- */
+function showPlayer(name) {
+  state.mode = {kind: 'player', name};
+  state.sort = null;
+  // Rebuild the dropdown from this player's own seasons once the rows arrive.
+  state.playerSeasons = null;
+  state.needsSeasonScope = true;
+  fillSeasons([], '');                        // "Whole career" while loading
+  run();
+}
+/* Browse every player. Sorting happens on the server (see sortBy), so clicking
+   a column header gives the real leaderboard for that column rather than
+   reordering whichever 100 rows happened to come back. */
+function allPlayers() {
+  state.mode = {kind: 'all'};             // set first: fillSeasons reads the mode
+  restoreAllSeasons();
+  $('projectpanel').classList.add('hidden');
+  state.sort = state.sort && state.stats.includes(state.sort)
+    ? state.sort : state.stats[0];
+  state.sortAsc = false;
+  run();
+}
+function recipe(name, params, title) {
+  state.mode = {kind: 'recipe', name, params, title};
+  restoreAllSeasons();
+  $('projectpanel').classList.add('hidden');
+  state.sort = null;
+  run();
+}
+function rerun() { if (state.mode) run(); }
+
+/* ---------- projections ----------
+   Shown only on a player view. Outputs a range and two separate probability
+   estimates; deliberately never a pick. */
+async function loadProjection() {
+  if (!state.mode || state.mode.kind !== 'player') return;
+
+  // Only the newest loaded season can be projected. A finished season has
+  // already happened; presenting it as a forecast would be nonsense.
+  const newest = Math.max(...state.meta.seasons);
+  const chosen = $('season').value
+    ? +$('season').value
+    : (state.playerSeasons && state.playerSeasons.length
+        ? Math.max(...state.playerSeasons) : newest);
+
+  if (chosen < newest) {
+    $('projectpanel').classList.remove('hidden');
+    $('projectbody').innerHTML =
+      `<p class="distro-key">${seasonLabel(chosen)} is over, so there's nothing
+       to project — those games already happened. Switch to
+       ${seasonLabel(newest)} for a projection.</p>`;
+    $('projectctls').classList.add('hidden');
+    return;
+  }
+  $('projectctls').classList.remove('hidden');
+
+  const p = new URLSearchParams({
+    player: state.mode.name,
+    stat: $('projstat').value || 'pts',
+    season_type: $('seasontype').value,
+  });
+  const season = $('season').value;
+  if (season) p.set('season', season);
+  if ($('projopp').value) p.set('opponent', $('projopp').value);
+  if ($('projvenue').value) p.set('venue', $('projvenue').value);
+  if ($('projline').value) p.set('line', $('projline').value);
+
+  $('projectbody').innerHTML = '<div class="loading">projecting…</div>';
+  $('projectpanel').classList.remove('hidden');
+
+  let d;
+  try {
+    d = await fetch('/api/project?' + p).then(r => r.json());
+  } catch (e) {
+    $('projectbody').innerHTML = '<p class="distro-key">Lost the server.</p>';
+    return;
+  }
+  if (d.error) {
+    $('projectbody').innerHTML =
+      `<p class="distro-key">${escapeHtml(d.error)}</p>`;
+    return;
+  }
+  drawProjection(d);
+}
+
+function drawProjection(d) {
+  const [lo95, hi95] = d.range_95;
+  const [lo68, hi68] = d.range_68;
+  // Scale the bar to the 95% band, padded, and clamped at zero.
+  const pad = Math.max(2, (hi95 - lo95) * 0.12);
+  const min = Math.max(0, lo95 - pad), max = hi95 + pad;
+  const pct = (v) => ((v - min) / (max - min)) * 100;
+
+  const line = d.line_analysis ? d.line_analysis.line : null;
+  const la = d.line_analysis;
+
+  const adj = [];
+  const o = d.adjustments.opponent, v = d.adjustments.venue;
+  if (o.applied) {
+    // Within 1.5% of neutral, the factor is noise — don't dress it as a signal.
+    const dir = Math.abs(o.factor - 1) < 0.015
+      ? 'allows about the league average'
+      : (o.factor > 1 ? 'allows more than average' : 'allows less than average');
+    adj.push(`<span><b>${o.opponent}</b> ${dir} (×${o.factor.toFixed(2)})</span>`);
+  }
+  if (v.applied) {
+    adj.push(`<span><b>${v.venue === 'home' ? 'Home' : 'Road'}</b> split ×${v.factor.toFixed(2)}, ${v.games} games</span>`);
+  }
+  adj.push(`<span><b>${d.projected_minutes}</b> projected minutes</span>`);
+  adj.push(`<span>last <b>${d.games_used}</b> games</span>`);
+
+  $('projectbody').innerHTML = `
+    <div class="projgrid">
+      <div>
+        <div class="bignum">
+          <span class="value">${d.projection.toFixed(1)}</span>
+          <span class="unit">${(PRETTY[d.stat] || d.stat).toLowerCase()}</span>
+        </div>
+        <div class="spread">± ${d.std_dev.toFixed(1)} typical swing</div>
+      </div>
+
+      <div class="distro">
+        <div class="distro-track">
+          <div class="band95" style="left:${pct(lo95)}%;width:${pct(hi95) - pct(lo95)}%"></div>
+          <div class="band68" style="left:${pct(lo68)}%;width:${pct(hi68) - pct(lo68)}%"></div>
+          <div class="centerline" style="left:${pct(d.projection)}%"></div>
+          ${line !== null && line >= min && line <= max
+            ? `<div class="lineMark" style="left:${pct(line)}%"></div>` : ''}
+        </div>
+        <div class="distro-scale"><span>${min.toFixed(0)}</span><span>${max.toFixed(0)}</span></div>
+        <div class="distro-key">
+          Dark band: where about two thirds of games land. Light band: about 95%.
+          ${line !== null ? ' Red mark is your line.' : ''}
+        </div>
+      </div>
+    </div>
+
+    ${la ? `
+    <div class="oddsrow">
+      <div class="oddsitem">
+        <div class="k">Model says over ${la.line}</div>
+        <div class="v">${(la.model_over_probability * 100).toFixed(0)}%</div>
+      </div>
+      <div class="oddsitem">
+        <div class="k">Actually went over, last ${la.games}</div>
+        <div class="v">${(la.empirical_over_rate * 100).toFixed(0)}% <span class="k">(${la.empirical_record})</span></div>
+      </div>
+      <div class="oddsitem">
+        <div class="k">Break-even at −110</div>
+        <div class="v">52.4%</div>
+      </div>
+    </div>` : ''}
+
+    <div class="adjlist">${adj.join('')}</div>
+
+    <div class="caveats">
+      ${la ? 'These two percentages measure different things and often disagree — the second ignores opponent and venue. ' : ''}
+      This model sees box scores only:
+      <ul>${d.caveats.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+    </div>`;
+}
+
+function syncStatPick() {
+  ['statpick', 'statpickadv'].forEach(host => {
+    [...$(host).children].forEach(b => {
+      b.classList.toggle('on', state.stats.includes(b.dataset.stat));
+    });
+  });
+}
+
+async function run() {
+  $('loading').classList.remove('hidden');
+  $('notice').classList.add('hidden');
+
+  const season = $('season').value;
+  const seasonType = $('seasontype').value;
+  const minGames = $('mingames').value;
+  let url, title;
+
+  if (state.mode.kind === 'player') {
+    // Default is the whole career, newest season first. Picking a season from
+    // the dropdown narrows to that one.
+    const p = new URLSearchParams({
+      player: state.mode.name, stats: state.stats.join(','),
+      per_mode: state.perMode, season_type: seasonType, limit: 40,
+      order_by: 'season', asc: '0',
+    });
+    if (season && !state.needsSeasonScope) p.set('season', season);
+    url = '/api/query?' + p;
+    title = state.mode.name +
+            (season && !state.needsSeasonScope ? `, ${seasonLabel(+season)}` : '');
+  } else if (state.mode.kind === 'all') {
+    // Sorting is done by the database, so the top of the table is the actual
+    // leader in that column, not the best of an arbitrary first 100 rows.
+    const sortBy = state.stats.includes(state.sort) ? state.sort : state.stats[0];
+
+    const p = new URLSearchParams({
+      stats: state.stats.join(','), per_mode: state.perMode,
+      season_type: seasonType, order_by: sortBy,
+      asc: state.sortAsc ? '1' : '0',
+      min_games: minGames || 0, limit: 100,
+    });
+    if (season) p.set('season', season);
+    url = '/api/query?' + p;
+    title = `Players by ${PRETTY[sortBy] || sortBy}` +
+            (season ? `, ${seasonLabel(+season)}` : ', all seasons');
+  } else {
+    const p = new URLSearchParams({season_type: seasonType, limit: 50, ...state.mode.params});
+    if (season && state.mode.name !== 'single-digit-scoring') p.set('season', season);
+    // The server drops any parameter a given recipe doesn't accept, so it is
+    // safe to pass this along for all of them.
+    if (minGames && +minGames > 0) p.set('min_games', minGames);
+    url = `/api/recipe/${state.mode.name}?` + p;
+    title = state.mode.title + (season ? `, ${seasonLabel(+season)}` : '');
+  }
+
+  let data;
+  try {
+    data = await fetch(url).then(r => r.json());
+  } catch (e) {
+    $('loading').classList.add('hidden');
+    return showNotice('Lost the server',
+      '<p>The local server stopped responding. Restart it with <code>nbastats serve</code>.</p>');
+  }
+  $('loading').classList.add('hidden');
+
+  if (data.error) {
+    return showNotice('That query didn\'t work', `<p>${escapeHtml(data.error)}</p>`);
+  }
+
+  state.rows = data.rows || [];
+
+  // First load of a player: scope the dropdown to the seasons they played.
+  if (state.mode.kind === 'player' && state.needsSeasonScope) {
+    state.needsSeasonScope = false;
+    state.playerSeasons = [...new Set(state.rows.map(r => r.season))]
+      .sort((a, b) => b - a);
+    fillSeasons(state.playerSeasons, '');
+  }
+
+  if (!state.rows.length) {
+    return showNotice('Nothing matched',
+      state.mode.kind === 'player'
+        ? '<p>No games for that player in these filters. Try the regular season, or clear the minimum games.</p>'
+        : '<p>Try a wider season range, or lower the minimum games.</p>');
+  }
+  $('sheettitle').textContent = title;
+  draw();
+
+  // After draw(), so the table is already on the page and the panel lands
+  // underneath it instead of being shoved down a moment later.
+  if (state.mode.kind === 'player') loadProjection();
+}
+
+/* ---------- table ---------- */
+function draw() {
+  const rows = state.rows;
+  // In a single player's view the name is already the heading, so repeating it
+  // on every row just costs a column.
+  const hide = new Set(HIDDEN_COLS);
+  if (state.mode.kind === 'player') hide.add('player');
+  const cols = Object.keys(rows[0]).filter(c => !hide.has(c));
+
+  // In 'all' mode the server already sorted; re-sorting here would only
+  // reorder the current page and contradict the header arrow.
+  if (state.sort && state.mode.kind !== 'all') {
+    const k = state.sort, dir = state.sortAsc ? 1 : -1;
+    rows.sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * dir;
+    });
+  }
+
+  const thead = $('thead');
+  thead.innerHTML = '';
+  const tr = document.createElement('tr');
+  tr.appendChild(document.createElement('th'));   // rank gutter
+  cols.forEach(c => {
+    const th = document.createElement('th');
+    th.textContent = PRETTY[c] || c;
+    if (TEXT_COLS.has(c)) th.classList.add('text');
+    if (state.sort === c) {
+      th.classList.add('sorted');
+      th.insertAdjacentHTML('beforeend', `<span class="caret">${state.sortAsc ? '▲' : '▼'}</span>`);
+    }
+    th.title = `Sort by ${c}`;
+    th.onclick = () => {
+      if (state.sort === c) state.sortAsc = !state.sortAsc;
+      else { state.sort = c; state.sortAsc = false; }
+      // Browsing everyone: ask the database to re-sort, so the top of the
+      // table is the real leader and not just the best of this page.
+      // A single player's career is short enough to sort in place.
+      if (state.mode.kind === 'all') run();
+      else draw();
+    };
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+
+  const tbody = $('tbody');
+  tbody.innerHTML = '';
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    const rank = document.createElement('td');
+    rank.className = 'rank'; rank.textContent = i + 1;
+    tr.appendChild(rank);
+    cols.forEach(c => {
+      const td = document.createElement('td');
+      if (TEXT_COLS.has(c)) td.classList.add('text');
+      td.textContent = fmt(c, r[c]);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  $('rowcount').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'}`;
+  $('results').classList.remove('hidden');
+  $('notice').classList.add('hidden');
+}
+
+function fmt(col, v) {
+  if (v === null || v === undefined) return '—';
+  if (col === 'season') return seasonLabel(v);
+  if (col.endsWith('_pct') && typeof v === 'number') {
+    return v.toFixed(3).replace(/^0/, '');     // .486, the way box scores print it
+  }
+  if (typeof v === 'number' && !Number.isInteger(v)) return v.toFixed(1);
+  if (typeof v === 'number') return v.toLocaleString();
+  return v;
+}
+
+function showNotice(heading, html) {
+  $('notice').innerHTML = `<h2>${heading}</h2>${html}`;
+  $('notice').classList.remove('hidden');
+  $('results').classList.add('hidden');
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+boot();
+</script>
+</body>
+</html>

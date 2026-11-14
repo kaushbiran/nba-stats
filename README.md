@@ -1,9 +1,11 @@
-# nba-stats
+# NBA Watcher
 
 Query completed NBA seasons from a local database. Pull by player, team, year,
 per-mode (totals / per-game / per-36 / per-100) and stat — plus derived
 "random stats" like double-doubles, 50-point games and single-digit scoring
 seasons.
+
+Repo: `nba-stats` · command: `nbastats`
 
 ## The core idea
 
@@ -25,13 +27,33 @@ season and read-many forever. There is no reason to hit the API at query time.
 ```bash
 git clone <your-repo-url> && cd nba-stats
 pip install -r requirements.txt
+pip install -e .
 
 # Pull data (run from your own machine — see the warning below)
-python scripts/backfill.py --start 2015 --end 2024
+python scripts/backfill.py --start 1996 --end 2025
 
-# Query it
-python -m nbastats.cli query --season 2023 --stats pts,reb,ast --limit 10
-python -m nbastats.cli recipe double-doubles --season 2023
+# Open the web interface
+nbastats serve
+```
+
+`nbastats serve` starts a local server and opens a browser. Two ways in:
+
+- **All players** — every player for the chosen season. Click any column
+  header to sort by it, which is how you get leaderboards: sort by PTS for
+  scoring leaders, by TD for triple-doubles, by USG% for usage. Sorting runs
+  in the database, so the top of the table is the real leader, not the best of
+  whichever rows happened to load.
+- **Search** — type a player's name for their career table and a projection
+  for their next game.
+
+Nothing leaves your machine — it binds to `127.0.0.1` and only reads the local
+database.
+
+There is a command line too:
+
+```bash
+nbastats query --season 2025 --stats pts,reb,ast --limit 10
+nbastats recipe double-doubles --season 2025
 ```
 
 > **Run the backfill locally, not in CI or on a cloud host.** stats.nba.com
@@ -41,7 +63,109 @@ python -m nbastats.cli recipe double-doubles --season 2023
 A full backfill from 1996 is roughly 60 requests (two per season) and takes a
 few minutes. The resulting database is a few hundred MB.
 
-## Usage
+## The web interface
+
+```bash
+nbastats serve                      # http://127.0.0.1:8000
+nbastats serve --port 9000
+nbastats serve --no-browser
+```
+
+Built on Python's standard library — no FastAPI, no Node, nothing to install
+beyond what the backfill already needed. The page is a single HTML file in
+`src/nbastats/static/`, and the JSON API lives in `src/nbastats/web.py`:
+
+| Endpoint | Returns |
+|---|---|
+| `/api/meta` | seasons, stat names, recipes, row counts |
+| `/api/search?q=` | player autocomplete |
+| `/api/query?...` | the same filters as the `query` command |
+| `/api/recipe/<name>?...` | a recipe's rows |
+
+It binds to localhost. `--host 0.0.0.0` exposes it to your network, which is
+fine on a home network and a bad idea on public wifi — there is no
+authentication.
+
+
+## Projections
+
+`nbastats serve`, then search a player — a **Next game** panel appears under
+their career table. Pick a stat, an opponent, a venue, and optionally type a
+line.
+
+It reports a projection, the spread around it, and **two different** over/under
+estimates: a model probability (from the projection and its standard deviation)
+and the raw empirical rate over the lookback window. They disagree often. The
+empirical rate ignores opponent and venue; the model assumes a normal-ish
+spread. Seeing them disagree is the point — a single confident number would be
+hiding the uncertainty rather than reporting it.
+
+How the projection is built:
+
+```
+rate       = recency-weighted per-minute production
+minutes    = recency-weighted minutes
+opp_adj    = what the opponent allows / league average
+venue_adj  = the player's home or road split, shrunk toward 1 and capped at ±10%
+projection = rate × minutes × opp_adj × venue_adj
+```
+
+Weights decay 0.94 per game back, so a game 11 back counts about half as much
+as the most recent one.
+
+**Only the newest loaded season can be projected.** A finished season has
+already happened, so presenting it as a forecast would be nonsense — pick an
+older season and the panel says so instead of producing a number. The backtest
+overrides this deliberately (`allow_past_seasons=True`), because scoring
+against known outcomes is the whole point there.
+
+**What it does not know:** injuries, rest, minutes restrictions, foul trouble,
+lineup changes, trades, or anything after the last ingested game. That list is
+most of what actually moves a line.
+
+### Checking whether it works
+
+```bash
+python scripts/backtest.py --season 2024 --stat pts
+```
+
+Walk-forward validation: every projection uses only games played before the
+game being scored, opponent strength included. It reports MAE and RMSE against
+two simpler baselines (a flat average, and rate × minutes with no opponent
+adjustment), the signed bias, and a calibration table.
+
+If the model can't beat a flat average, the script says so in those words. A
+projection tool that can't be shown to beat doing nothing is not worth
+trusting, and the backtest is how you find out.
+
+Calibration being good means the stated uncertainty is honest. It does **not**
+mean the model can beat a priced market — nothing in the backtest is measured
+against odds.
+
+### On betting
+
+This tool has no odds feed and makes no picks, by design. Two things worth
+knowing if that is why you came:
+
+A sportsbook's line already prices in injury reports, minutes projections,
+lineup data and money flow. A box-score model sees none of it, so when your
+number disagrees with the market, the base rate heavily favors the market.
+
+And parlays compound the house edge. At −110 per leg:
+
+| Legs | Pays | Implied | Fair | House edge |
+|---|---|---|---|---|
+| 1 | 1.91× | 52.4% | 50.0% | 4.6% |
+| 2 | 3.65× | 27.4% | 25.0% | 8.9% |
+| 3 | 6.96× | 14.4% | 12.5% | 13.0% |
+| 4 | 13.28× | 7.5% | 6.3% | 17.0% |
+| 5 | 25.36× | 3.9% | 3.1% | 20.8% |
+
+A model that is genuinely 2% sharper than the market still loses money on
+four-leg parlays. `nbastats.project.parlay_math(legs)` computes this for any
+leg count.
+
+## Command line
 
 ### Query
 
@@ -88,6 +212,61 @@ nbastats recipe team-ratings --season 2023
 nbastats recipe team-records --season 2023
 ```
 
+
+## Advanced stats
+
+The Columns picker splits into **Regular** (box-score counting stats and
+shooting percentages) and **Advanced**:
+
+| Stat | What it is |
+|---|---|
+| USG% | share of team plays used while on the floor |
+| TS% | points per shooting possession, counting threes and free throws |
+| eFG% | field goal percentage with threes weighted 1.5 |
+| AST% | share of teammates' made field goals assisted |
+| AST/poss | assists per 100 possessions the player used |
+| REB% / OREB% / DREB% | share of available rebounds grabbed while on the floor |
+| STL% | steals per 100 opponent possessions |
+| BLK% | share of opponent two-point attempts blocked |
+| TOV% | turnovers per 100 possessions used |
+
+Two things about how these are computed here:
+
+**Team totals come from the games the player actually played**, not the team's
+full season. Basketball Reference uses full-season team totals, so a player who
+missed 30 games will show a slightly different number here. This version
+describes the games he was in, which is usually what you want from a rate stat.
+
+**The on-court shares use minutes as a proxy.** Box scores don't record who
+else was on the floor, so `(team minutes / 5) / player minutes` stands in for
+it. That's the standard public approximation, and it's still an approximation —
+a player sharing the floor with a dominant rebounder gets no credit for that
+context.
+
+### What is deliberately missing
+
+**BPM, VORP, Win Shares, and individual ORtg/DRtg are not here**, and not
+because they were forgotten:
+
+- **BPM and VORP** need regression coefficients fit on play-by-play data. The
+  published formula is a fitted model, not an identity; you cannot derive it
+  from box scores.
+- **Win Shares** needs league-wide marginal points per win and team possession
+  estimates for every team-season.
+- **Individual ORtg/DRtg** need Dean Oliver's full possession-attribution
+  model — roughly 20 interlocking formulas assigning credit for scoring
+  possessions across teammates.
+
+Each could be approximated from this data, but a wrong number that looks
+authoritative is worse than an absent one, and none of them could be validated
+against a reference here. **Team ORtg and DRtg are real** and available through
+the `team-ratings` recipe, since those are straightforward points per 100
+possessions.
+
+If you want the individual versions, Oliver's formulas are public and this
+schema has the team box scores they need. Implementing them is a weekend's work
+plus careful spot-checking against Basketball Reference.
+
 ## Per-mode math
 
 Stated explicitly because this is where homemade stat sites usually go wrong.
@@ -131,7 +310,11 @@ src/nbastats/
   query.py                StatQuery -> SQL (the filter engine)
   recipes.py              derived stats (double-doubles, thresholds, ratings)
   cli.py                  command line interface
+  project.py              prop projections, odds math, de-vigging
+  web.py                  local JSON API (standard library only)
+  static/index.html       the web interface, one self-contained file
 scripts/backfill.py       resumable multi-season ingest
+scripts/backtest.py       walk-forward validation of the projection model
 tests/                    runs against a synthetic fixture DB, never the live API
 ```
 

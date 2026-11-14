@@ -103,3 +103,36 @@ def test_registry_covers_all_recipes(conn):
     for name, fn in recipes.RECIPES.items():
         result = fn(conn)
         assert isinstance(result, list), f"{name} did not return a list"
+
+
+def test_triple_double_leaders_shows_counts(conn):
+    """The leaderboard must rank by count, not list individual games."""
+    rows = recipes.triple_double_leaders(conn)
+    assert rows
+    assert "triple_doubles" in rows[0]
+    beta = next(r for r in rows if r["player"] == "Beta Allrounder")
+    assert beta["triple_doubles"] == 1
+    assert beta["double_doubles"] == 4
+
+
+def test_triple_double_leaders_excludes_zero(conn):
+    rows = recipes.triple_double_leaders(conn)
+    assert all(r["triple_doubles"] > 0 for r in rows)
+
+
+def test_triple_double_leaders_sorted_descending(conn):
+    rows = recipes.triple_double_leaders(conn)
+    counts = [r["triple_doubles"] for r in rows]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_registry_maps_triple_doubles_to_leaderboard(conn):
+    """The preset chip must get counts; the game list lives under its own name."""
+    assert recipes.RECIPES["triple-doubles"] is recipes.triple_double_leaders
+    assert recipes.RECIPES["triple-double-games"] is recipes.triple_doubles
+
+
+def test_triple_double_games_still_lists_games(conn):
+    rows = recipes.RECIPES["triple-double-games"](conn, player="beta")
+    assert len(rows) == 1
+    assert "game_date" in rows[0]

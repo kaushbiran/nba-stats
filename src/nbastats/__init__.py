@@ -1,4 +1,4 @@
-"""nba-stats: query completed NBA seasons from a local database."""
+"""NBA Watcher: query completed NBA seasons from a local database."""
 
 from .db import connect, init_schema
 from .query import StatQuery, query, run, build_sql

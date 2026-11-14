@@ -57,6 +57,32 @@ def double_doubles(conn: sqlite3.Connection, player: str | None = None,
     """, params + [limit])
 
 
+def triple_double_leaders(conn, season: int | None = None,
+                          season_type: str = REG, limit: int = 50) -> list[dict]:
+    """Rank players by how many triple-doubles they have."""
+    where, params = ["pg.season_type = ?"], [season_type]
+    if season is not None:
+        where.append("pg.season = ?")
+        params.append(season)
+
+    return _rows(conn, f"""
+        SELECT p.full_name AS player, pg.season,
+               SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 3 THEN 1 ELSE 0 END) AS triple_doubles,
+               SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 2 THEN 1 ELSE 0 END) AS double_doubles,
+               COUNT(*) AS gp,
+               ROUND(CAST(SUM(pg.pts) AS REAL) / COUNT(*), 1) AS ppg,
+               ROUND(CAST(SUM(pg.reb) AS REAL) / COUNT(*), 1) AS rpg,
+               ROUND(CAST(SUM(pg.ast) AS REAL) / COUNT(*), 1) AS apg
+        FROM player_games pg
+        JOIN players p ON p.player_id = pg.player_id
+        WHERE {" AND ".join(where)}
+        GROUP BY pg.player_id, pg.season
+        HAVING triple_doubles > 0
+        ORDER BY triple_doubles DESC, double_doubles DESC
+        LIMIT ?
+    """, params + [limit])
+
+
 def triple_doubles(conn, player=None, season=None, season_type=REG, limit=50):
     """Games with >=10 in at least three categories, listed individually."""
     where, params = ["pg.season_type = ?", f"({_CATEGORY_COUNT}) >= 3"], [season_type]
@@ -239,7 +265,8 @@ def team_records(conn, season: int | None = None, season_type: str = REG) -> lis
 # Registry so the CLI (and any future web layer) can list what exists.
 RECIPES = {
     "double-doubles": double_doubles,
-    "triple-doubles": triple_doubles,
+    "triple-doubles": triple_double_leaders,
+    "triple-double-games": triple_doubles,
     "threshold-games": games_above_threshold,
     "single-digit-scoring": single_digit_scoring_seasons,
     "averages-club": season_averages_club,

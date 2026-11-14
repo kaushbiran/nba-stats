@@ -76,6 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--min-games", type=int)
     r.add_argument("--limit", type=int, default=25)
 
+    s = sub.add_parser("serve", help="open the web interface")
+    s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--host", default="127.0.0.1",
+                   help="bind address; 0.0.0.0 exposes it to your network")
+    s.add_argument("--no-browser", action="store_true",
+                   help="don't open a browser window automatically")
+
     sub.add_parser("recipes", help="list available recipes")
     sub.add_parser("stats", help="list available stat names")
     sub.add_parser("info", help="show database contents")
@@ -93,6 +100,15 @@ def main(argv: list[str] | None = None) -> int:
         print("  " + ", ".join(sorted(COUNTING_STATS)))
         print("rate (never rescaled):")
         print("  " + ", ".join(sorted(RATE_STATS)))
+        return 0
+
+    if args.command == "serve":
+        from .web import serve
+        # Create the file and schema if they don't exist, so the UI can show
+        # its own "no data yet" state instead of a stack trace.
+        db.init_schema(db.connect(args.db))
+        serve(port=args.port, db_path=args.db, host=args.host,
+              open_browser=not args.no_browser)
         return 0
 
     conn = db.connect(args.db)
