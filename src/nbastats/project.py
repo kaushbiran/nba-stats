@@ -45,6 +45,45 @@ PROJECTABLE = ["pts", "reb", "ast", "stl", "blk", "fg3m", "tov",
 DEFAULT_LOOKBACK = 20
 DECAY = 0.94          # per-game weight decay; ~11-game half-life
 
+# How often a player actually clears a line set at his own projection. Not 50%:
+# scoring is right-skewed (a floor at zero, a long tail upward), so the mean
+# sits above the median. Measured at 45.8% over 18,475 player-games.
+SKEWED_BASE_RATE = 0.45
+
+# Weight given to that base rate, in games, for a line sitting right at the
+# projection. A 20-game window carries about 12 units of decayed weight, so
+# this is roughly a 50/50 blend at the center.
+EMPIRICAL_PRIOR = 6.0
+
+# How fast that shrinkage falls off as the line moves away from the
+# projection, in standard deviations.
+#
+# Flat shrinkage fails in both directions, and the backtest only caught one of
+# them. At the projection, heavy shrinkage wins — a backtest on 18,475
+# player-games found a constant 45% beat every method that looked at the data,
+# because which side a centered line falls on really is near a coin flip.
+# But that backtest never tested lines away from the center. With a flat
+# prior of 12, a line that all 20 recent games cleared still reports 72%,
+# which is plainly wrong.
+#
+# So the prior decays with distance: heavy shrinkage where the answer is
+# genuinely uncertain, and none where the game log settles it.
+PRIOR_FALLOFF_SDS = 1.0
+
+# The prior never reaches zero. Twenty games is a small sample however lopsided
+# it looks, and a stat tool reporting 100% is making a promise the data cannot
+# keep — a player can get hurt, rest, or foul out in the first quarter.
+MIN_PRIOR = 0.3
+
+
+def adaptive_prior(line: float, projection: float, sd: float) -> float:
+    """Shrinkage weight for this line: strong at the center, minimal at the tails."""
+    if sd <= 0:
+        return EMPIRICAL_PRIOR
+    d = abs(line - projection) / sd
+    decayed = EMPIRICAL_PRIOR * math.exp(-(d ** 2) / (2 * PRIOR_FALLOFF_SDS ** 2))
+    return max(MIN_PRIOR, decayed)
+
 # How far a home/away split is trusted. Splits over 20-40 games are noisy, so
 # the adjustment is shrunk toward 1.0 rather than applied at face value.
 SPLIT_SHRINK = 0.5
@@ -376,34 +415,105 @@ def project(conn: sqlite3.Connection, player: str, stat: str = "pts",
     return out
 
 
+def empirical_over_probability(values: list[float], line: float,
+                               decay: float = DECAY,
+                               prior: float = 1.0,
+                               prior_center: float = 0.5) -> float:
+    """Share of recent games that cleared the line, weighted toward recent ones.
+
+    Replaces a normal approximation around the projected mean. Scoring is
+    right-skewed — a player cannot go below zero but can go off for 50 — so the
+    mean sits above the median, and assuming a symmetric spread around the mean
+    overstates the chance of going over. A backtest showed exactly that: lines
+    the model put at 55% hit only 46.8% of the time, while the 45% bucket was
+    accurate. Reading the probability off the real distribution keeps the skew
+    instead of assuming it away.
+
+    `prior` is how many games' worth of weight to put on `prior_center`. A
+    small prior lets a 20-game sample speak for itself; a large one holds the
+    estimate near the center unless the evidence is strong. This matters more
+    than it sounds: a backtest on real data showed the lightly-smoothed version
+    spreading its predictions from 25% to 65% while the actual rate stayed flat
+    near 45%, i.e. producing confident variation that predicted nothing. Too
+    little shrinkage trades the normal approximation's bias for worse variance.
+
+    `values` is newest-first, matching the game log.
+    """
+    if not values:
+        return prior_center
+    weights = [decay ** i for i in range(len(values))]
+    total = sum(weights)
+    w_over = sum(w for w, v in zip(weights, values) if v > line)
+    w_push = sum(w for w, v in zip(weights, values) if v == line)
+    return ((w_over + 0.5 * w_push + prior * prior_center)
+            / (total + prior))
+
+
 def compare_to_line(projection: float, sd: float, values: list[float],
                     line: float) -> dict:
-    """Two independent reads on an over/under, reported side by side.
+    """Three reads on an over/under, reported side by side.
 
-    They are both estimates and they disagree often; seeing the disagreement
-    is the point. The empirical rate knows nothing about the opponent, and the
-    model estimate assumes a shape the data may not have.
+    The headline number is a normal approximation around the projection. That
+    choice was settled by backtest, not by preference, and it took two wrong
+    turns to get there:
+
+    1. The normal method's calibration at a centered line looked bad — lines
+       it put at 55% hit only 46.8% of the time. Scoring is right-skewed, so a
+       symmetric spread around the mean overstates the over. Replacing it with
+       the player's own empirical distribution seemed obviously correct.
+
+    2. That was worse (5.5% vs 4.2% weighted miss). The empirical estimate
+       spread predictions from 25% to 65% while the true rate sat flat near
+       45% — confident variation that predicted nothing. Shrinking it heavily
+       helped at the center, and a constant 45% that looked at nothing at all
+       scored best of everything.
+
+    3. Which was an artifact of the measurement: the backtest only ever placed
+       the line AT the projection, the one spot where refusing to commit is
+       free. Scored across lines from -1.5 to +1.5 standard deviations out,
+       the constant is the worst method by a mile (26.4% mean) and the plain
+       normal approximation is the best (3.2%).
+
+    So the known flaw in step 1 is real and still here: at a centered line
+    this runs about 8 points hot on the over. It is reported rather than
+    hidden, and the empirical figure sits beside it so the gap is visible.
+    Everything that fixed that flaw made the overall answer worse.
     """
     over_hits = sum(1 for v in values if v > line)
     push = sum(1 for v in values if v == line)
     n = len(values)
 
     if sd > 0:
-        z = (line - projection) / sd
-        model_over = 1 - NormalDist().cdf(z)
+        over = 1 - NormalDist().cdf((line - projection) / sd)
     else:
-        model_over = 1.0 if projection > line else 0.0
+        over = 1.0 if projection > line else 0.0
+
+    empirical = empirical_over_probability(
+        values, line,
+        prior=adaptive_prior(line, projection, sd),
+        prior_center=SKEWED_BASE_RATE,
+    )
+
+    # How far the line sits from the projection decides whether the known bias
+    # applies: it shows up near the center and fades at the tails.
+    centered = sd > 0 and abs(line - projection) < 0.5 * sd
 
     return {
         "line": line,
-        "model_over_probability": round(model_over, 4),
-        "model_under_probability": round(1 - model_over, 4),
+        "over_probability": round(over, 4),
+        "under_probability": round(1 - over, 4),
+        "empirical_probability": round(empirical, 4),
         "empirical_over_rate": round(over_hits / n, 4) if n else None,
         "empirical_record": f"{over_hits}-{n - over_hits - push}" +
                             (f"-{push} push" if push else ""),
         "games": n,
-        "note": "The empirical rate ignores the opponent and venue; the model "
-                "probability assumes a normal spread. Neither is a forecast.",
+        "centered": centered,
+        "method": "normal approximation around the projection",
+        "note": "Backtested as the best-calibrated of six methods across the "
+                "range of line placements. Near the projection it runs about "
+                "8 points hot on the over, because scoring is right-skewed. "
+                "It knows nothing about injuries or rest, and it is not a "
+                "forecast.",
     }
 
 
@@ -421,7 +531,7 @@ def compare_to_market(projection: float, sd: float, values: list[float],
         **model,
         "market": market,
         "model_vs_market_over": round(
-            model["model_over_probability"] - market["fair_over"], 4
+            model["over_probability"] - market["fair_over"], 4
         ),
         "interpretation": (
             "A positive number means this model is higher on the over than the "

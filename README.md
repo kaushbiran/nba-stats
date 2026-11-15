@@ -1,11 +1,20 @@
-# NBA Watcher
+# Stat Merchant
 
 Query completed NBA seasons from a local database. Pull by player, team, year,
 per-mode (totals / per-game / per-36 / per-100) and stat — plus derived
 "random stats" like double-doubles, 50-point games and single-digit scoring
 seasons.
 
-Repo: `nba-stats` · command: `nbastats`
+Two ways to ask a question: **aggregated**, for season and career lines that
+can be ranked and compared, and the **game finder**, for the individual games
+matching a set of conditions — every 50-point game, triple-doubles in a loss,
+20 rebounds against one opponent.
+
+Command: `nbastats`. The Python package stays `nbastats` whatever the project
+is called, so a rename needs no reinstall.
+
+Not affiliated with the NBA. Team colors stand in for logos, which are
+trademarks.
 
 ## The core idea
 
@@ -42,7 +51,9 @@ nbastats serve
   header to sort by it, which is how you get leaderboards: sort by PTS for
   scoring leaders, by TD for triple-doubles, by USG% for usage. Sorting runs
   in the database, so the top of the table is the real leader, not the best of
-  whichever rows happened to load.
+  whichever rows happened to load. Results page 100 at a time, labelled by
+  rank range (1–100, 101–200, …); the number of pages follows whatever the
+  filters match, so raising the minimum games shrinks it.
 - **Search** — type a player's name for their career table and a projection
   for their next game.
 
@@ -80,11 +91,51 @@ beyond what the backfill already needed. The page is a single HTML file in
 | `/api/meta` | seasons, stat names, recipes, row counts |
 | `/api/search?q=` | player autocomplete |
 | `/api/query?...` | the same filters as the `query` command |
+| `/api/finder?...` | individual games matching conditions |
+| `/api/compare?p=...` | one aggregated row per player-and-scope |
 | `/api/recipe/<name>?...` | a recipe's rows |
 
 It binds to localhost. `--host 0.0.0.0` exposes it to your network, which is
 fine on a home network and a bad idea on public wifi — there is no
 authentication.
+
+### Columns
+
+The picker sits on the **left** of the controls strip, where reading starts.
+It is the control people reach for most, and it used to be last on the row.
+
+Every table leads with the same columns in the same order: **team, then
+player, then games played and minutes.** The badge goes before the name
+because it is the easiest thing on a row to find by eye. Games played and
+minutes follow the name because both say how much of a season a line is
+built on, which you want before the averages beside them rather than after.
+
+```
+Team  Player  Season  GP  MIN  PTS  REB  AST          leaderboard
+Team  Season  GP  MIN  PTS  REB  AST                  one player
+Date  Team  Player  Opp  Result  Score  PTS  …        find games
+Team  Player  Season  GP  DD  TD                      recipes
+```
+
+The comparison table is transposed — one column per player, one row per
+stat — so the same order applies turned ninety degrees: the team badge sits
+above the name in each header, and the rows run GP, MIN, then the stats. It
+is also the one table that does **not** fill the page. Stretched to full
+width, two players give two 590px columns with a single number adrift in
+each; side by side only works if the sides are close enough to read
+together. It sizes to its content instead, with a 155px floor per column.
+
+**Clear all** strips the table back to the identity columns — who, which
+team, which season, and games played — so you can add back only what you
+care about instead of switching off ten things you didn't ask for. Games
+played is selected by the query itself rather than by a chip, so clearing
+leaves a legible table rather than nothing. With everything off the button
+becomes **Restore defaults**.
+
+This means `stats=` and an absent `stats` are different requests: absent is
+"use the defaults", empty is "no stat columns". The server parses the query
+string with `keep_blank_values=True` so the distinction survives the round
+trip — without it `stats=` vanishes and Clear all silently does nothing.
 
 
 ## Projections
@@ -93,12 +144,55 @@ authentication.
 their career table. Pick a stat, an opponent, a venue, and optionally type a
 line.
 
-It reports a projection, the spread around it, and **two different** over/under
-estimates: a model probability (from the projection and its standard deviation)
-and the raw empirical rate over the lookback window. They disagree often. The
-empirical rate ignores opponent and venue; the model assumes a normal-ish
-spread. Seeing them disagree is the point — a single confident number would be
-hiding the uncertainty rather than reporting it.
+It reports a projection, the spread around it, and several over/under
+estimates side by side. Seeing them disagree is the point — a single confident
+number would be hiding the uncertainty rather than reporting it.
+
+The headline probability is a normal approximation around the projection.
+That default was settled by backtesting, and getting there took two wrong
+turns worth recording.
+
+**First measurement.** Calibration at a line set on the projection:
+
+| Predicted | Actual |
+|---|---|
+| 45% | 44.8% |
+| 55% | 46.8% |
+
+The 55% bucket missed by 8 points. The cause is skew — scoring has a floor at
+zero and a long right tail, so the mean sits above the median and a symmetric
+spread overstates the over.
+
+**First fix, which was worse.** Reading the probability off the player's own
+game log scored 5.5% weighted miss against the normal method's 4.2%. It spread
+predictions from 25% to 65% while the true rate stayed flat near 45% —
+confident variation that predicted nothing. Shrinking it heavily helped, and
+a constant 45% that looked at nothing at all scored best of everything at 0.8%.
+
+**Which was an artifact of the measurement.** The backtest only ever placed the
+line *at* the projection — the one spot where refusing to commit is free.
+Scored across lines from −1.5 to +1.5 standard deviations out:
+
+| Method | −1.5 | −0.75 | 0 | +0.75 | +1.5 | mean |
+|---|---|---|---|---|---|---|
+| normal approximation | 3.2% | 1.7% | 4.2% | 1.5% | 5.3% | **3.2%** |
+| empirical, light shrinkage | 3.5% | 4.9% | 5.5% | 4.0% | 4.6% | 4.5% |
+| adaptive shrinkage | 5.4% | 7.6% | 3.8% | 5.3% | 5.3% | 5.5% |
+| empirical, heavy shrinkage | 18.9% | 10.8% | 3.2% | 12.6% | 18.5% | 12.8% |
+| empirical, heavy toward 45% | 22.5% | 13.6% | 2.7% | 10.6% | 15.6% | 13.0% |
+| constant 45% | 46.8% | 28.3% | 0.8% | 21.5% | 34.7% | 26.4% |
+
+The constant is the best method at a centered line and the worst by a wide
+margin everywhere else. The plain normal approximation wins overall.
+
+So the original flaw is real and still present: near the projection this runs
+about 8 points hot on the over, and the panel says so when the line sits
+there. Every attempt to fix it made the overall answer worse. The empirical
+figure is shown alongside, because where the two disagree the distribution
+isn't symmetric.
+
+The lesson is about the metric rather than the model. A measurement taken in
+one regime will happily crown a method that fails in every other one.
 
 How the projection is built:
 
@@ -213,6 +307,122 @@ nbastats recipe team-records --season 2023
 ```
 
 
+
+### Comparing players
+
+Click **Compare players** beside the search box, then search to add players to
+the tray. Each entry carries its own scope:
+
+- **Whole career** — every game, across every team
+- **One team only** — just that stint, e.g. Harden's Rockets years
+- **One season** — a single year
+
+The `+` on a chip adds the same player again, so one player's stints can sit
+next to each other: Jordan on the Bulls against Jordan on the Wizards, in the
+same table. Up to six entries.
+
+Switching to the game finder and back keeps the comparison: looking at
+something else is not the same as being done with it. Turning compare off
+deliberately does clear it.
+
+The table is transposed for this view: one **column per player**, one **row
+per stat**. Side by side is how you actually read a comparison — scanning
+down a short column beats scanning across a wide one — so adding a stat here
+adds a row, where the normal table would add a column.
+
+Each entry is colored by the team it unambiguously belongs to. A team scope
+is obvious; a **career** scope counts too when the player only ever played
+for one team — Curry, Dirk, Tatum — since "whole career" and "on the
+Warriors" are the same set of games for them. A season spent entirely with
+one team gets that color as well. Anything spanning two teams stays neutral,
+because no single color would be honest.
+
+The best value in each row is marked. Turnovers and fouls count the other
+way, games played isn't marked at all (more games isn't better), and ties are
+judged on the number as displayed, so two cells both reading 3.4 are both
+marked.
+
+A career row shows which teams the player appeared for; a team-scoped row
+leaves that column out, since the scope already names it. An entry that
+matches no games stays in the table marked "no games" rather than silently
+disappearing.
+
+### Finding games
+
+Click **Find games** beside the search box. Everything else in this project
+aggregates — season averages, career totals, team ratings. This does the
+opposite: it returns the individual games that satisfy a set of conditions.
+
+> Every 50-point game. Triple-doubles in a loss. 20 rebounds against one
+> opponent. 30 points on 70% true shooting.
+
+Conditions are **ANDed and all apply to the same game**, which is the whole
+point: 40 points *and* 15 rebounds means one player doing both on one night,
+not a player who averages both. Each row carries the game's context — date,
+opponent with `vs` or `@`, result, final score — alongside the stats.
+
+**Twelve named searches** in three groups are the front door: 50-point games,
+triple-doubles, 20-assist games, 5 of everything. Each card says in one plain
+line what it finds, on its face rather than behind a hover. Dropdowns for
+team, opponent, home/road and win/loss narrow any of them.
+
+**"Build your own search"** is folded away underneath, for the question no
+card covers. It is the only part of this view written in stats rather than in
+sentences, and most people never need to open it.
+
+The heading is the contract: it names every condition *and* every filter that
+ran — "Games with 40+ points and 10+ rebounds against LAL in a loss" — so the
+table can never quietly be narrower than it looks.
+
+#### Design notes
+
+- **Nothing in this view is written in operators.** The builder reads
+  `Points · at least · 50`, and the heading says "50+ points". `cats >= 3`
+  becomes "a triple-double", because that is the word people already have for
+  it.
+- **Percentages are typed as percentages.** The box takes `60` and shows a `%`
+  inside the field; the 0–1 share the database wants is produced on the way
+  out. Asking for `0.6` is the single most confusing thing about filtering on
+  a rate, and typing `60` by mistake matches no game at all — a filter that
+  looks broken rather than wrong. Changing a condition from a count to a rate
+  clears the number instead of carrying it across.
+- **Pair a rate with a volume condition.** A 1-for-1 game is 100% and means
+  nothing. 60% field goal shooting plus 20 attempts is the useful form.
+- **A stat you filter on becomes a column**, even if you didn't ask for it, so
+  a result filtered on three-pointers shows the three-pointers.
+- **Season-level metrics leave the Columns picker here** rather than sitting
+  struck through. Usage rate, rebound share and the double-double *count* need
+  a whole season of team totals, so they have no honest single-game value and
+  are not part of this view's vocabulary. If one was already switched on, a
+  line under the picker says where it went.
+- **The Columns picker itself folds shut** in this view. You came looking for
+  games, and two dozen abbreviations is the wrong thing to meet on the way.
+  Clear all works here too: with no stat columns a row is just the game —
+  date, teams, result, score — plus whatever you filtered on.
+
+Two fields exist only here:
+
+| Field | Shown as | Meaning |
+|---|---|---|
+| `cats` | Categories in double figures | how many of points, rebounds, assists, steals and blocks reached 10. Two is a double-double, three a triple-double |
+| `margin` | Won or lost by | the points the game was decided by, from the player's side: positive in a win, negative in a loss |
+
+From the command line the same thing is one call:
+
+```python
+from nbastats import db, finder
+
+conn = db.connect("data/nba.db")
+finder.find(conn, conditions=finder.parse_conditions("pts>=50"), season=2023)
+finder.find(conn, conditions=[("cats", ">=", 3)], result="L")
+```
+
+Condition text never reaches SQL. The field is looked up in an allowlist, the
+operator is mapped through a second one, and the value is bound as a
+parameter — so a malformed condition is rejected before a query is built
+rather than escaped on the way in.
+
+
 ## Advanced stats
 
 The Columns picker splits into **Regular** (box-score counting stats and
@@ -276,12 +486,20 @@ Stated explicitly because this is where homemade stat sites usually go wrong.
 | `totals` | raw sums |
 | `per_game` | total ÷ games played |
 | `per36` | total ÷ minutes × 36 |
-| `per100` | total ÷ possessions × 100 |
+| `per100` | total ÷ team possessions while on the floor × 100 |
 
-Possessions are **estimated** as `fga - oreb + tov + 0.44 × fta`. This is the
-standard approximation, not an official NBA figure, so per-100 numbers will
-differ slightly from Basketball Reference, which averages a team-level estimate
-with the opponent's.
+Per-100 means per 100 **team** possessions while the player was on the floor,
+not per 100 of the possessions he personally used. Team possessions are
+estimated as `tm.fga - tm.oreb + tm.tov + 0.44 × tm.fta` and scaled by the
+player's share of floor time (`player minutes ÷ (team minutes ÷ 5)`).
+
+So a starter on a 100-possession team playing 36 of 48 minutes is credited
+with about 75 possessions, and 25 points becomes roughly 33 per 100 — the
+range real per-100 figures live in.
+
+The possession count is an **estimate**, not an official NBA figure, so these
+will differ slightly from Basketball Reference, which averages a team-level
+estimate with the opponent's.
 
 **Rate stats are never rescaled.** `fg_pct` is the same number whether you ask
 for totals or per-36, and it is computed from summed components
@@ -307,7 +525,8 @@ src/nbastats/
   db.py                   connections, schema init
   client.py               nba_api wrapper: rate limiting, retries, raw JSON cache
   ingest.py               parsers: game logs -> normalized tables
-  query.py                StatQuery -> SQL (the filter engine)
+  query.py                StatQuery -> SQL (the filter engine, aggregated)
+  finder.py               GameQuery -> SQL (game finder, one row per game)
   recipes.py              derived stats (double-doubles, thresholds, ratings)
   cli.py                  command line interface
   project.py              prop projections, odds math, de-vigging

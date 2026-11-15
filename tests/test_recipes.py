@@ -136,3 +136,59 @@ def test_triple_double_games_still_lists_games(conn):
     rows = recipes.RECIPES["triple-double-games"](conn, player="beta")
     assert len(rows) == 1
     assert "game_date" in rows[0]
+
+
+# ---------------------------------------------------------------------------
+# Every player recipe names a team
+#
+# These rows sit in the same table as everything else, so a row without a
+# team badge is the odd one out. Team also comes first, matching the column
+# order the rest of the app uses.
+# ---------------------------------------------------------------------------
+
+PLAYER_RECIPES = [
+    ("double-doubles", {}),
+    ("triple-doubles", {}),
+    ("triple-double-games", {}),
+    ("threshold-games", {"stat": "pts", "threshold": 20}),
+    ("single-digit-scoring", {"min_games": 1}),
+    ("averages-club", {"pts": 1, "reb": 1, "ast": 0, "min_games": 1}),
+    ("iron-man", {"min_games": 1}),
+]
+
+
+@pytest.mark.parametrize("name,kwargs", PLAYER_RECIPES)
+def test_player_recipe_includes_a_team(conn, name, kwargs):
+    rows = recipes.RECIPES[name](conn, **kwargs)
+    assert rows, f"{name} returned nothing, so this proves nothing"
+    assert "team" in rows[0], f"{name} has no team column"
+    assert rows[0]["team"], f"{name} has an empty team"
+
+
+@pytest.mark.parametrize("name,kwargs", PLAYER_RECIPES)
+def test_player_recipe_puts_team_first(conn, name, kwargs):
+    rows = recipes.RECIPES[name](conn, **kwargs)
+    keys = list(rows[0])
+    assert keys[0] == "team", f"{name} starts with {keys[0]!r}, not team"
+    assert keys[1] == "player", f"{name} has {keys[1]!r} where player should be"
+
+
+def test_team_recipes_already_lead_with_team(conn):
+    for name in ("team-ratings", "team-records"):
+        rows = recipes.RECIPES[name](conn)
+        assert list(rows[0])[0] == "team", name
+
+
+def test_traded_player_shows_both_teams(conn):
+    """A season-grouped row covers every team the player appeared for, the
+    same way the main query does."""
+    rows = recipes.RECIPES["iron-man"](conn, min_games=1)
+    alpha = [r for r in rows if r["player"] == "Alpha Scorer"]
+    assert alpha
+    assert all(r["team"] == "BOS" for r in alpha)
+
+
+def test_game_level_recipe_names_one_team(conn):
+    """A single game has exactly one team, so no comma-joined list."""
+    for row in recipes.RECIPES["triple-double-games"](conn):
+        assert "," not in row["team"], row

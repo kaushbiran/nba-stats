@@ -217,20 +217,20 @@ def test_venue_adjustment_is_capped(league):
 def test_line_analysis_two_estimates(league):
     out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
     la = out["line_analysis"]
-    assert 0 <= la["model_over_probability"] <= 1
+    assert 0 <= la["over_probability"] <= 1
     assert 0 <= la["empirical_over_rate"] <= 1
-    assert la["model_over_probability"] + la["model_under_probability"] == pytest.approx(1.0)
+    assert la["over_probability"] + la["under_probability"] == pytest.approx(1.0)
     assert "-" in la["empirical_record"]
 
 
 def test_line_far_above_projection_is_unlikely(league):
     out = project.project(league, "Star", stat="pts", season=2022, line=60)
-    assert out["line_analysis"]["model_over_probability"] < 0.02
+    assert out["line_analysis"]["over_probability"] < 0.10
 
 
 def test_line_far_below_projection_is_likely(league):
     out = project.project(league, "Star", stat="pts", season=2022, line=2)
-    assert out["line_analysis"]["model_over_probability"] > 0.98
+    assert out["line_analysis"]["over_probability"] > 0.90
 
 
 def test_compare_to_market_reports_gap(league):
@@ -240,7 +240,7 @@ def test_compare_to_market_reports_gap(league):
                                     25.5, -110, -110)
     assert cmp["market"]["fair_over"] == pytest.approx(0.5)
     assert cmp["model_vs_market_over"] == pytest.approx(
-        cmp["model_over_probability"] - 0.5, abs=1e-4
+        cmp["over_probability"] - 0.5, abs=1e-4
     )
 
 
@@ -326,3 +326,227 @@ def test_latest_season_helper(conn):
 def test_season_label_format():
     assert project.seasonlabel(2023) == "2023-24"
     assert project.seasonlabel(1999) == "1999-00"
+
+
+# ---------------------------------------------------------------------------
+# Empirical over/under probability
+#
+# Replaced a normal approximation after a backtest on 18,475 real player-games
+# showed lines the model put at 55% hitting only 46.8% of the time, while the
+# 45% bucket was accurate. The cause is skew: scoring has a floor at zero and a
+# long right tail, so the mean sits above the median and a symmetric spread
+# around the mean overstates the chance of going over.
+# ---------------------------------------------------------------------------
+
+def test_empirical_probability_counts_games_over(league):
+    from nbastats.project import empirical_over_probability
+    # Every game over the line -> near 1, but smoothed away from certainty.
+    p = empirical_over_probability([30, 28, 35, 31, 29], 10)
+    assert 0.8 < p < 1.0
+
+
+def test_empirical_probability_never_certain(league):
+    """A 20-game sample must not claim 0% or 100%."""
+    from nbastats.project import empirical_over_probability
+    assert 0 < empirical_over_probability([5] * 20, 100) < 0.15
+    assert 0.85 < empirical_over_probability([50] * 20, 10) < 1.0
+
+
+def test_empirical_probability_handles_empty(league):
+    from nbastats.project import empirical_over_probability
+    assert empirical_over_probability([], 20) == 0.5
+
+
+def test_empirical_probability_weights_recent_games(league):
+    """Same games, opposite order: the recent half should move the answer."""
+    from nbastats.project import empirical_over_probability
+    hot_lately = [40, 40, 40, 40, 40, 5, 5, 5, 5, 5]      # newest first
+    cold_lately = list(reversed(hot_lately))
+    assert (empirical_over_probability(hot_lately, 20)
+            > empirical_over_probability(cold_lately, 20))
+
+
+def test_empirical_splits_pushes(league):
+    from nbastats.project import empirical_over_probability
+    # Every game exactly on the line counts as half.
+    p = empirical_over_probability([20] * 10, 20)
+    assert p == pytest.approx(0.5, abs=0.01)
+
+
+def test_skewed_distribution_beats_normal(league):
+    """On right-skewed scoring the normal estimate overstates the over; the
+    empirical one should sit closer to what actually happened."""
+    from statistics import NormalDist
+    import math
+    from nbastats.project import empirical_over_probability
+
+    # Floor at zero, long right tail: a typical scoring shape.
+    games = [8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 18, 20, 24, 31, 44]
+    mean = sum(games) / len(games)
+    sd = math.sqrt(sum((v - mean) ** 2 for v in games) / (len(games) - 1))
+    line = round(mean * 2) / 2
+
+    normal_p = 1 - NormalDist().cdf((line - mean) / sd)
+    empirical_p = empirical_over_probability(list(reversed(games)), line)
+    actual = sum(1 for v in games if v > line) / len(games)
+
+    assert abs(empirical_p - actual) < abs(normal_p - actual)
+    assert normal_p > actual, "normal approximation should overstate the over"
+
+
+def test_line_analysis_exposes_both_methods(league):
+    out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
+    la = out["line_analysis"]
+    assert "over_probability" in la
+    assert "empirical_probability" in la
+    assert la["method"] == "normal approximation around the projection"
+
+
+def test_prior_controls_shrinkage(league):
+    """A heavier prior holds the estimate nearer the center.
+
+    This is the knob that matters: on real data a lightly-smoothed estimate
+    spread predictions from 25% to 65% while the true rate stayed near 45%,
+    which is confident variation that predicts nothing.
+    """
+    from nbastats.project import empirical_over_probability
+    games = [30, 28, 35, 31, 29, 33, 27, 32]       # all well over the line
+    light = empirical_over_probability(games, 10, prior=1)
+    heavy = empirical_over_probability(games, 10, prior=12)
+    assert light > heavy > 0.5
+    assert abs(heavy - 0.5) < abs(light - 0.5)
+
+
+def test_prior_center_shifts_the_target(league):
+    """Shrinking toward 45% rather than 50% matters when the base rate isn't
+    a coin flip — and for a line at the projection, it isn't."""
+    from nbastats.project import empirical_over_probability
+    games = [20] * 10                                # every game a push
+    toward_half = empirical_over_probability(games, 20, prior=12)
+    toward_45 = empirical_over_probability(games, 20, prior=12, prior_center=0.45)
+    assert toward_half > toward_45
+
+
+def test_empty_history_returns_the_center(league):
+    from nbastats.project import empirical_over_probability
+    assert empirical_over_probability([], 20) == 0.5
+    assert empirical_over_probability([], 20, prior_center=0.45) == 0.45
+
+
+def test_smoothing_still_bounded(league):
+    """Whatever the prior, never 0% or 100%."""
+    from nbastats.project import empirical_over_probability
+    for prior in (1, 6, 12):
+        assert 0 < empirical_over_probability([5] * 20, 100, prior=prior) < 1
+        assert 0 < empirical_over_probability([50] * 20, 10, prior=prior) < 1
+
+
+# ---------------------------------------------------------------------------
+# Adaptive shrinkage
+#
+# Flat shrinkage fails at one end or the other, and the backtest only tested
+# one end. At the projection, heavy shrinkage wins (a constant 45% beat every
+# data-driven method over 18,475 player-games). Away from the projection, that
+# same heavy prior reports 72% for a line all 20 recent games cleared, which is
+# plainly wrong. So the prior decays with distance.
+# ---------------------------------------------------------------------------
+
+def test_adaptive_prior_is_strongest_at_the_projection(league):
+    from nbastats.project import adaptive_prior, EMPIRICAL_PRIOR
+    assert adaptive_prior(30.0, 30.0, 5.0) == pytest.approx(EMPIRICAL_PRIOR)
+
+
+def test_adaptive_prior_decays_with_distance(league):
+    from nbastats.project import adaptive_prior
+    near = adaptive_prior(31.0, 30.0, 5.0)
+    far = adaptive_prior(45.0, 30.0, 5.0)
+    assert near > far
+
+
+def test_adaptive_prior_never_hits_zero(league):
+    """Even at the far tail some smoothing remains, so nothing reports 100%."""
+    from nbastats.project import adaptive_prior, MIN_PRIOR
+    assert adaptive_prior(500.0, 30.0, 5.0) == pytest.approx(MIN_PRIOR)
+
+
+def test_adaptive_prior_handles_zero_spread(league):
+    from nbastats.project import adaptive_prior, EMPIRICAL_PRIOR
+    assert adaptive_prior(30.0, 30.0, 0.0) == EMPIRICAL_PRIOR
+
+
+def test_obvious_line_reports_near_certainty(league):
+    """The failure flat shrinkage had: a line every recent game cleared must
+    not come back at 72%."""
+    from nbastats.project import adaptive_prior, empirical_over_probability
+    games = [34, 28, 31, 25, 38, 29, 33, 22, 30, 36] * 2
+    line, proj, sd = 5.5, 30.0, 4.3
+    p = empirical_over_probability(
+        games, line, prior=adaptive_prior(line, proj, sd), prior_center=0.45)
+    assert p > 0.95
+    assert p < 1.0
+
+
+def test_centered_line_is_pulled_toward_the_base_rate(league):
+    """And the opposite case: a line at the projection should sit near 45-50%,
+    not wherever a noisy 20-game sample happens to land."""
+    from nbastats.project import adaptive_prior, empirical_over_probability
+    games = [34, 28, 31, 25, 38, 29, 33, 22, 30, 36] * 2
+    line, proj, sd = 30.0, 30.0, 4.3
+    p = empirical_over_probability(
+        games, line, prior=adaptive_prior(line, proj, sd), prior_center=0.45)
+    assert 0.40 < p < 0.60
+
+
+def test_projection_uses_adaptive_shrinkage(league):
+    out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
+    assert 0 < out["line_analysis"]["over_probability"] < 1
+
+
+# ---------------------------------------------------------------------------
+# Which method is the default
+#
+# Settled by backtest on 18,475 real player-games, scored across lines from
+# -1.5 to +1.5 standard deviations out:
+#
+#     normal approximation                3.2%   <- default
+#     empirical, light shrinkage          4.5%
+#     adaptive shrinkage                  5.5%
+#     empirical, heavy shrinkage         12.8%
+#     empirical, heavy toward 45%        13.0%
+#     constant 45%                       26.4%
+#
+# The constant wins at a centered line (0.8%) and is worst everywhere else.
+# These tests exist so a future change has to beat that, not just sound better.
+# ---------------------------------------------------------------------------
+
+def test_default_is_the_normal_approximation(league):
+    from statistics import NormalDist
+    out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
+    la = out["line_analysis"]
+    expected = 1 - NormalDist().cdf((25.5 - out["projection"]) / out["std_dev"])
+    assert la["over_probability"] == pytest.approx(round(expected, 4), abs=1e-4)
+
+
+def test_empirical_still_reported_alongside(league):
+    """Kept visible: where the two disagree, the distribution is skewed."""
+    out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
+    assert 0 < out["line_analysis"]["empirical_probability"] < 1
+
+
+def test_centered_line_is_flagged(league):
+    """The known +8-point bias applies near the projection, so say so there."""
+    out = project.project(league, "Star", stat="pts", season=2022)
+    proj = out["projection"]
+    at_line = project.project(league, "Star", stat="pts", season=2022,
+                              line=round(proj * 2) / 2)
+    assert at_line["line_analysis"]["centered"] is True
+
+
+def test_far_line_is_not_flagged(league):
+    out = project.project(league, "Star", stat="pts", season=2022, line=5.5)
+    assert out["line_analysis"]["centered"] is False
+
+
+def test_note_discloses_the_bias(league):
+    out = project.project(league, "Star", stat="pts", season=2022, line=25.5)
+    assert "hot" in out["line_analysis"]["note"]

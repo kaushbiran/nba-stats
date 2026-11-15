@@ -103,3 +103,58 @@ def test_static_index_exists():
     index = web.STATIC_DIR / "index.html"
     assert index.exists(), "the UI page is missing from the package"
     assert "<title>" in index.read_text()
+
+
+# ---------------------------------------------------------------------------
+# The `stats` parameter: absent, empty, and populated are three states
+# ---------------------------------------------------------------------------
+
+def test_stats_absent_uses_the_defaults(conn):
+    assert web._stats_param({}) == ["pts", "reb", "ast"]
+
+
+def test_stats_empty_means_no_columns(conn):
+    """Not the same as absent. The Clear all button sends `stats=`, and
+    quietly restoring the defaults would make it look broken."""
+    assert web._stats_param({"stats": [""]}) == []
+
+
+def test_stats_parsing_trims_and_drops_blanks(conn):
+    assert web._stats_param({"stats": [" pts , ,reb "]}) == ["pts", "reb"]
+
+
+def test_query_with_no_stats_returns_identity_columns(conn):
+    out = web._handle_query(conn, {"stats": [""], "season": ["2020"]})
+    assert set(out["rows"][0]) == {"player_id", "player", "team",
+                                   "season", "gp"}
+    assert out["rows"][0]["gp"] == 4
+
+
+def test_query_with_no_stats_sorts_by_games_played(conn):
+    """There is no stats[0] to fall back on, so the sort key has to be gp."""
+    out = web._handle_query(conn, {"stats": [""]})
+    counts = [r["gp"] for r in out["rows"]]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_compare_with_no_stats(conn):
+    out = web._handle_compare(conn, {"p": ["1001~career~"], "stats": [""]})
+    assert "gp" in out["rows"][0]
+    assert "pts" not in out["rows"][0]
+
+
+def test_blank_values_survive_query_string_parsing():
+    """parse_qs drops blank values by default, which would make `stats=`
+    invisible to the handler and the Clear all button a no-op."""
+    from urllib.parse import parse_qs
+    assert "stats" not in parse_qs("stats=&season=2023")
+    kept = parse_qs("stats=&season=2023", keep_blank_values=True)
+    assert kept["stats"] == [""]
+    assert web._stats_param(kept) == []
+
+
+def test_handler_reads_blank_values(conn):
+    """The server must pass keep_blank_values through, or the above is moot."""
+    import inspect
+    src = inspect.getsource(web)
+    assert "keep_blank_values=True" in src

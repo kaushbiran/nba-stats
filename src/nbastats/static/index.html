@@ -3,22 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBA Watcher</title>
+<title>Stat Merchant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --paper:#F4F6F0;
-  --bar:#DFE8D7;
-  --ink:#1C2416;
-  --ink-soft:#5A6650;
-  --rule:#A8B89E;
-  --rule-faint:#C9D5C0;
-  --pen:#B8342A;
-  --field:#FFFFFF;
+  /* Dark arena palette. The UI stays near-monochrome on purpose — the only
+     real color in the table comes from the team badges, so color always means
+     something rather than decorating. */
+  --paper:#0D0F13;        /* page */
+  --bar:#171B22;          /* alternating row */
+  --ink:#E9ECF1;          /* primary text */
+  --ink-soft:#8C97A6;     /* secondary text */
+  --rule:#2C333D;         /* borders */
+  --rule-faint:#1F252D;
+  --pen:#E0A33C;          /* sort + focus: hardwood amber */
+  --field:#151921;        /* inputs, raised surfaces */
+  --hover:#1E242E;
 }
 
+/* Tells the browser to render form controls and scrollbars dark too, so
+   selects and the scrollbar don't flash white against the page. */
+:root{color-scheme:dark;}
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{
@@ -29,13 +36,15 @@ body{
   line-height:1.5;
   -webkit-font-smoothing:antialiased;
 }
-.wrap{max-width:1040px;margin:0 auto;padding:0 20px 80px;}
+/* Wide, because the page is mostly table: at 1040px a dozen stat columns
+   were squeezed into the left half with whitespace to the right of them. */
+.wrap{max-width:1340px;margin:0 auto;padding:0 20px 80px;}
 
 /* ---- masthead: a ruled header strip, like the top of a stat printout ---- */
 .masthead{
   display:flex;align-items:baseline;justify-content:space-between;gap:16px;
   padding:22px 0 14px;
-  border-bottom:2px solid var(--ink);
+  border-bottom:1px solid var(--rule);
   flex-wrap:wrap;
 }
 .wordmark{
@@ -50,21 +59,94 @@ body{
 /* ---- search: the hero. The field is the product. ---- */
 .searchblock{padding:40px 0 0;position:relative;}
 .prompt{
-  font-size:clamp(28px,4.4vw,42px);
-  font-weight:600;letter-spacing:-0.035em;line-height:1.12;
-  margin:0 0 20px;max-width:17ch;
+  /* No max-width: the question is short enough to sit on one line, and
+     wrapping it after "Who are you" reads as a different sentence. */
+  font-size:clamp(25px,3.6vw,38px);
+  font-weight:600;letter-spacing:-0.035em;line-height:1.15;
+  margin:0 0 20px;white-space:nowrap;
 }
-.searchrow{position:relative;max-width:620px;}
+.searchbar{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;}
+.searchrow{position:relative;flex:1 1 420px;max-width:620px;}
+
+/* The two mode buttons share whatever the search box leaves, in equal parts,
+   so neither reads as the primary one — they are two ways of asking, not a
+   button and its afterthought. */
+.comparebtn{
+  flex:1 1 170px;max-width:240px;
+  font-family:'Archivo',sans-serif;font-size:14.5px;font-weight:500;
+  color:var(--ink-soft);background:var(--field);
+  border:1px solid var(--rule);border-radius:4px;
+  padding:0 16px;cursor:pointer;white-space:nowrap;
+  transition:color .13s ease, border-color .13s ease, background .13s ease;
+}
+.comparebtn:hover{color:var(--ink);}
+.comparebtn[aria-pressed="true"]{
+  background:var(--pen);color:#17191D;border-color:var(--pen);font-weight:600;
+}
+.comparebtn:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
+
+/* The tray only appears in compare mode; it holds who is being compared. */
+.comparetray{
+  display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;
+  margin-top:12px;padding:10px 12px;
+  background:var(--field);border:1px solid var(--rule);border-radius:4px;
+}
+.traylabel{font-size:12.5px;color:var(--ink-soft);}
+.traychips{display:flex;gap:9px;flex-wrap:wrap;align-items:stretch;}
+/* Each entry is a small card: who, and what of theirs is being counted. */
+.traychip{
+  display:flex;flex-direction:column;gap:7px;
+  padding:9px 10px;border-radius:5px;min-width:190px;
+  background:var(--bar);border:1px solid var(--rule);
+  border-left:3px solid var(--rule);
+}
+.chiptop{display:flex;align-items:center;gap:8px;}
+.chipname{
+  font-size:14px;font-weight:600;color:var(--ink);
+  margin-right:auto;white-space:nowrap;
+}
+.traychip button{
+  border:0;background:transparent;color:var(--ink-soft);cursor:pointer;
+  font-size:15px;line-height:1;padding:0 3px;border-radius:3px;
+}
+.traychip button:hover{color:var(--pen);background:var(--hover);}
+
+/* What to count: career, one team, or one season. A real select, so the
+   native dropdown and keyboard behaviour come for free, restyled to match
+   and with a chevron of its own. */
+.scopewrap{position:relative;display:flex;}
+.scopesel{
+  appearance:none;-webkit-appearance:none;width:100%;
+  font-family:'Archivo',sans-serif;font-size:12.5px;font-weight:500;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px;
+  color:var(--ink);padding:5px 24px 5px 9px;min-height:28px;cursor:pointer;
+}
+.scopesel:hover{border-color:var(--ink-soft);}
+.scopesel:focus-visible{outline:2px solid var(--pen);outline-offset:1px;}
+.scopewrap::after{
+  content:'';position:absolute;right:9px;top:50%;
+  width:6px;height:6px;margin-top:-4px;pointer-events:none;
+  border-right:1.5px solid var(--ink-soft);border-bottom:1.5px solid var(--ink-soft);
+  transform:rotate(45deg);
+}
+.scopesel optgroup{background:var(--field);color:var(--ink-soft);}
+.scopesel option{background:var(--field);color:var(--ink);}
+.trayclear{
+  margin-left:auto;border:0;background:transparent;cursor:pointer;
+  font-family:'Archivo',sans-serif;font-size:12.5px;color:var(--ink-soft);
+  text-decoration:underline;text-underline-offset:2px;
+}
+.trayclear:hover{color:var(--pen);}
 #search{
   width:100%;
   font-family:'Archivo',sans-serif;
   font-size:19px;font-weight:500;color:var(--ink);
   padding:15px 16px 15px 46px;
   background:var(--field);
-  border:2px solid var(--ink);
-  border-radius:2px;
+  border:1px solid var(--rule);
+  border-radius:4px;
 }
-#search::placeholder{color:#93A089;font-weight:400;}
+#search::placeholder{color:#5E6878;font-weight:400;}
 #search:focus{outline:3px solid var(--pen);outline-offset:2px;}
 .magnifier{
   position:absolute;left:16px;top:50%;transform:translateY(-50%);
@@ -73,9 +155,9 @@ body{
 
 .suggestions{
   position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;
-  background:var(--field);border:2px solid var(--ink);border-radius:2px;
+  background:var(--field);border:1px solid var(--rule);border-radius:4px;
   max-height:330px;overflow:auto;display:none;
-  box-shadow:4px 4px 0 var(--rule-faint);
+  box-shadow:0 10px 30px rgba(0,0,0,.55);
 }
 .suggestions.open{display:block;}
 .sug{
@@ -102,17 +184,42 @@ body{
   border:1px solid var(--rule);border-radius:2px;
   padding:6px 11px;cursor:pointer;
 }
-.chip:hover{background:var(--bar);border-color:var(--ink);}
+.chip:hover{background:var(--hover);border-color:var(--ink-soft);}
 .chip:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
-.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+.chip.on{background:var(--pen);color:#17191D;border-color:var(--pen);font-weight:600;}
 
 /* ---- filters: a ruled control strip above the sheet ---- */
+/* The filter strip fills the width between its two rules rather than bunching
+   on the left. The four small controls sit at their natural size; Columns
+   takes whatever is left, since it holds the most. */
+/* Columns on the left, the four filters as one block on the right. Top
+   alignment, so the filter labels line up with the Columns label rather than
+   with the bottom of a block that is several rows taller than they are. */
 .controls{
-  margin-top:34px;padding:14px 0;
+  margin-top:34px;padding:18px 0;
   border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
-  display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;
+  display:flex;flex-wrap:wrap;gap:26px 40px;align-items:flex-start;
+  justify-content:space-between;
 }
-.ctl{display:flex;flex-direction:column;gap:5px;}
+.ctlgroup{
+  display:flex;flex-wrap:wrap;gap:22px 28px;align-items:flex-start;
+}
+/* Folded, the columns block is three words wide, and spreading the row would
+   strand Season and Games against the far edge — the same hunting-across
+   problem that moving Columns to the left was meant to fix. */
+.controls--find{justify-content:flex-start;}
+.controls--find .ctl--columns{flex:0 0 auto;min-width:0;}
+.ctl{display:flex;flex-direction:column;gap:6px;}
+.ctl--columns{flex:1 1 520px;min-width:300px;}
+.colhead{display:flex;align-items:baseline;gap:10px;margin:0 0 6px;}
+.colclear{
+  font-family:'Archivo',sans-serif;font-size:11.5px;font-weight:500;
+  color:var(--ink-soft);background:transparent;
+  border:1px solid var(--rule);border-radius:3px;
+  padding:2px 8px;cursor:pointer;
+}
+.colclear:hover{color:var(--pen);border-color:var(--pen);}
+.colclear:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
 .ctl label{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
 select,input[type=number]{
   font-family:'Archivo',sans-serif;font-size:14px;color:var(--ink);
@@ -129,20 +236,152 @@ select:focus,input:focus{outline:2px solid var(--pen);outline-offset:1px;}
   border:0;border-right:1px solid var(--rule);padding:7px 10px;cursor:pointer;
 }
 .segment button:last-child{border-right:0;}
-.segment button.on{background:var(--ink);color:var(--paper);font-weight:600;}
+.segment button.on{background:var(--pen);color:#17191D;font-weight:600;}
 .segment button:focus-visible{outline:2px solid var(--pen);outline-offset:-2px;}
 
-.statgroups{display:flex;gap:20px;flex-wrap:wrap;}
-.statgroup{display:flex;flex-direction:column;gap:4px;}
+/* ---- game finder ----
+   Built from the same pieces as the controls strip above it, so the page has
+   one visual language: small caps-free labels in soft ink, the mono face
+   wherever a number is typed, amber only for state. */
+.findpanel{
+  margin:18px 0 0;padding:14px 16px 16px;
+  background:var(--field);border:1px solid var(--rule);border-radius:4px;
+}
+/* Named searches, as cards with their explanation on the face of them. The
+   explanation is the point: a tooltip you have to hover to find is no use to
+   the person who most needs it. */
+.pickergroup{margin:0 0 16px;}
+.pickergroup:last-of-type{margin-bottom:4px;}
+.pickerhead{
+  font-size:12px;font-weight:600;color:var(--ink-soft);
+  margin:0 0 8px;letter-spacing:.01em;
+}
+.pickers{display:flex;flex-direction:column;}
+.pickerrow{display:grid;gap:8px;grid-template-columns:repeat(4,1fr);}
+@media (max-width:980px){.pickerrow{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:560px){.pickerrow{grid-template-columns:1fr;}}
+.picker{
+  display:flex;flex-direction:column;gap:3px;text-align:left;
+  background:var(--bg);border:1px solid var(--rule);border-radius:4px;
+  padding:10px 12px;cursor:pointer;font-family:'Archivo',sans-serif;
+  transition:border-color .13s ease, background .13s ease;
+}
+.picker:hover{border-color:var(--ink-soft);background:var(--hover);}
+.picker:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
+.picker.on{border-color:var(--pen);background:var(--hover);}
+.pickername{font-size:14px;font-weight:600;color:var(--ink);line-height:1.25;}
+.picker.on .pickername{color:var(--pen);}
+.pickerwhy{font-size:11.5px;color:var(--ink-soft);line-height:1.35;}
+
+.findfilters{
+  display:flex;gap:12px;flex-wrap:wrap;
+  margin:16px 0 0;padding:14px 0 0;border-top:1px solid var(--rule);
+}
+.findfilter{display:flex;flex-direction:column;gap:5px;}
+.findfilter label{font-size:11.5px;font-weight:500;color:var(--ink-soft);}
+.findfilter select{min-width:118px;}
+
+/* The stat-by-stat builder, folded away until asked for. */
+.builder{margin:14px 0 0;border-top:1px solid var(--rule);padding-top:12px;}
+.buildersummary{
+  display:flex;align-items:baseline;gap:8px;cursor:pointer;
+  font-size:13px;font-weight:600;color:var(--ink-soft);
+  list-style:none;width:fit-content;
+}
+.buildersummary::-webkit-details-marker{display:none;}
+.buildersummary:hover{color:var(--ink);}
+.builder[open] .buildersummary{color:var(--ink);}
+.builderchevron{
+  display:inline-block;font-size:15px;line-height:1;
+  transition:transform .15s ease;
+}
+.builder[open] .builderchevron{transform:rotate(90deg);}
+.buildernote{font-size:11.5px;font-weight:400;opacity:.7;}
+.builder:focus-within .buildersummary{outline:none;}
+.buildersummary:focus-visible{outline:2px solid var(--pen);outline-offset:3px;}
+.builderbody{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;}
+.builderhint{margin:0;font-size:12px;color:var(--ink-soft);}
+.builderhint strong{color:var(--ink);font-weight:600;}
+
+.condlist{display:flex;flex-direction:column;gap:6px;}
+/* A requirement reads as a sentence — "Points / at least / 50" — rather than
+   as the expression it becomes. */
+.condrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.condrow select{min-width:0;}
+.condfield{flex:0 1 190px;}
+.condop{flex:0 1 128px;}
+.condvalwrap{position:relative;flex:0 0 auto;}
+.condval{
+  width:84px;
+  font-family:'IBM Plex Mono',monospace;
+  font-variant-numeric:tabular-nums;
+}
+.condvalwrap.pct .condval{padding-right:24px;}
+/* The % lives in the field, so the number typed is the number meant: 60, not
+   0.6, which is the single most confusing thing about filtering on a rate. */
+.condvalwrap.pct::after{
+  content:'%';position:absolute;right:9px;top:50%;transform:translateY(-50%);
+  font-family:'IBM Plex Mono',monospace;font-size:13px;
+  color:var(--ink-soft);pointer-events:none;
+}
+.conddrop{
+  border:0;background:transparent;color:var(--ink-soft);cursor:pointer;
+  font-size:16px;line-height:1;padding:2px 5px;border-radius:3px;
+}
+.conddrop:hover{color:var(--pen);background:var(--hover);}
+.conddrop:focus-visible{outline:2px solid var(--pen);outline-offset:1px;}
+.addcond{
+  align-self:flex-start;
+  font-family:'Archivo',sans-serif;font-size:12.5px;font-weight:500;
+  color:var(--ink-soft);background:transparent;
+  border:1px dashed var(--rule);border-radius:3px;
+  padding:5px 10px;cursor:pointer;
+}
+.addcond:hover{color:var(--pen);border-color:var(--pen);}
+.addcond:focus-visible{outline:2px solid var(--pen);outline-offset:2px;}
+
+/* Season-long columns simply aren't part of a single game's vocabulary, so
+   in finder mode they leave rather than linger struck through. If one was
+   already switched on, a line under the picker says where it went. */
+.statpick button.unavailable{display:none;}
+.colnote{
+  font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;line-height:1.4;
+}
+
+/* The column picker folds away in finder mode. Outside it the summary is
+   hidden and the block is open, so the control looks exactly as it always
+   has — the disclosure only exists for the view that needs it shut. */
+.colsummary{display:none;}
+.collabel{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+.colwrap--fold > .colsummary{
+  display:flex;align-items:center;gap:7px;cursor:pointer;
+  font-size:13px;font-weight:600;color:var(--ink-soft);
+  list-style:none;width:fit-content;
+  /* Sits level with the Season and Games boxes rather than with their
+     labels, so it reads as a control and not as a third stray label. */
+  margin-top:23px;
+}
+.colwrap--fold > .colsummary::-webkit-details-marker{display:none;}
+.colwrap--fold > .colsummary:hover{color:var(--ink);}
+.colwrap--fold[open] > .colsummary{color:var(--ink);margin-bottom:12px;}
+.colwrap--fold > .colsummary:focus-visible{
+  outline:2px solid var(--pen);outline-offset:3px;
+}
+/* The summary already says "Choose columns", so the heading would repeat
+   itself — but Clear all still earns its place once the block is open. */
+.colwrap--fold .collabel{display:none;}
+
+.statgroups{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;}
+.statgroup{display:flex;flex-direction:column;gap:5px;flex:1 1 200px;}
 .grouplabel{font-size:11.5px;color:var(--ink-soft);font-weight:500;}
-.statpick{display:flex;flex-wrap:wrap;gap:4px;max-width:300px;}
+.statpick{display:flex;flex-wrap:wrap;gap:4px;}
 .statpick button{
   font-family:'IBM Plex Mono',monospace;font-size:12px;
   background:var(--field);color:var(--ink-soft);
   border:1px solid var(--rule-faint);border-radius:2px;
   padding:4px 7px;cursor:pointer;
 }
-.statpick button.on{background:var(--bar);color:var(--ink);border-color:var(--ink);font-weight:600;}
+.statpick button.on{background:#243041;color:#CFE0F5;border-color:#3E5574;font-weight:600;}
 .statpick button.warn{
   background:var(--field);color:var(--pen);border-color:var(--pen);
   font-weight:500;
@@ -159,18 +398,24 @@ select:focus,input:focus{outline:2px solid var(--pen);outline-offset:1px;}
   font-variant-numeric:tabular-nums;
 }
 
-.sheetscroll{overflow-x:auto;margin-top:10px;border-top:2px solid var(--ink);}
+.sheetscroll{overflow-x:auto;margin-top:10px;border-top:1px solid var(--rule);}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
 thead th{
   position:sticky;top:0;background:var(--paper);
   font-size:12.5px;font-weight:600;color:var(--ink-soft);
   text-align:right;padding:9px 10px;white-space:nowrap;
-  border-bottom:1px solid var(--ink);cursor:pointer;user-select:none;
+  border-bottom:1px solid var(--rule);cursor:pointer;user-select:none;
 }
 thead th:first-child,thead th.text{text-align:left;}
-thead th:hover{color:var(--ink);}
+thead th:hover{color:var(--ink);background:var(--hover);}
 thead th.sorted{color:var(--pen);}
 thead th .caret{font-size:9px;margin-left:3px;}
+/* A faint caret on hover for unsorted columns, so it's discoverable that
+   every header is clickable without cluttering the row with arrows. */
+thead th:not(.sorted)::after{
+  content:'▾';font-size:9px;margin-left:4px;opacity:0;color:var(--ink-soft);
+}
+thead th:not(.sorted):hover::after{opacity:.85;}
 tbody td{
   padding:7px 10px;text-align:right;white-space:nowrap;
   font-family:'IBM Plex Mono',monospace;font-size:13.5px;
@@ -179,11 +424,11 @@ tbody td.text{
   text-align:left;font-family:'Archivo',sans-serif;font-size:14.5px;font-weight:500;
 }
 tbody tr:nth-child(even){background:var(--bar);}
-tbody tr:hover{background:#D2DEC8;}
+tbody tr:hover{background:var(--hover);}
 td.rank{color:var(--ink-soft);font-size:12px;width:34px;}
 
 /* ---- projection panel ---- */
-.project{margin-top:30px;border-top:2px solid var(--ink);padding-top:14px;}
+.project{margin-top:30px;border-top:1px solid var(--rule);padding-top:14px;}
 .projecthead{
   display:flex;align-items:center;justify-content:space-between;
   gap:14px;flex-wrap:wrap;
@@ -213,8 +458,9 @@ td.rank{color:var(--ink-soft);font-size:12px;width:34px;}
   background:var(--field);border-radius:2px;overflow:hidden;
 }
 .band95{position:absolute;top:0;bottom:0;background:var(--bar);}
-.band68{position:absolute;top:0;bottom:0;background:#C2D4B6;}
+.band68{position:absolute;top:0;bottom:0;background:#31404F;}
 .centerline{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);}
+.band95{opacity:.55;}
 .lineMark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--pen);}
 .distro-scale{
   display:flex;justify-content:space-between;
@@ -239,6 +485,14 @@ td.rank{color:var(--ink-soft);font-size:12px;width:34px;}
 }
 .adjlist b{color:var(--ink);font-weight:600;}
 
+.knownbias{
+  margin-top:12px;padding:9px 12px;max-width:640px;
+  border-left:2px solid var(--pen);border-radius:0 3px 3px 0;
+  background:rgba(224,163,60,.07);
+  font-size:12.5px;line-height:1.5;color:var(--ink-soft);
+}
+.knownbias b{color:var(--pen);font-weight:600;}
+
 .caveats{
   margin-top:16px;padding:11px 13px;background:var(--field);
   border:1px solid var(--rule-faint);border-left:3px solid var(--rule);
@@ -246,6 +500,99 @@ td.rank{color:var(--ink-soft);font-size:12px;width:34px;}
 }
 .caveats ul{margin:5px 0 0;padding-left:17px;}
 .caveats li{margin:2px 0;}
+
+/* ---- hover explanations ----
+   A faint amber glow marks anything that will explain itself, and the tooltip
+   says what the control actually does. Keyboard focus gets the same treatment,
+   so it isn't mouse-only. */
+[data-tip]{transition:box-shadow .13s ease, border-color .13s ease;}
+[data-tip]:hover,[data-tip]:focus-visible{
+  border-color:var(--pen);
+  box-shadow:0 0 0 1px rgba(224,163,60,.45), 0 0 14px rgba(224,163,60,.18);
+}
+.segment [data-tip]:hover{
+  box-shadow:inset 0 0 0 1px rgba(224,163,60,.5);
+  border-color:var(--rule);
+}
+
+.tip{
+  position:fixed;z-index:200;max-width:272px;
+  padding:9px 11px;border-radius:5px;
+  background:#1C2330;border:1px solid var(--rule);
+  box-shadow:0 10px 28px rgba(0,0,0,.6);
+  font-size:12.5px;line-height:1.45;color:var(--ink);
+  pointer-events:none;opacity:0;transform:translateY(3px);
+  transition:opacity .13s ease, transform .13s ease;
+}
+.tip.show{opacity:1;transform:none;}
+.tip b{color:var(--pen);font-weight:600;}
+
+/* ---- pager ---- */
+.pager{
+  display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+  margin-top:14px;padding-top:12px;border-top:1px solid var(--rule-faint);
+}
+.pager button{
+  font-family:'IBM Plex Mono',monospace;font-size:12px;
+  background:var(--field);color:var(--ink-soft);
+  border:1px solid var(--rule);border-radius:3px;
+  padding:5px 9px;cursor:pointer;
+}
+.pager button:hover:not(:disabled){border-color:var(--ink-soft);color:var(--ink);}
+.pager button.on{
+  background:var(--pen);color:#17191D;border-color:var(--pen);font-weight:600;
+}
+.pager button:disabled{opacity:.35;cursor:default;}
+.pager .gap{color:var(--ink-soft);font-size:12px;padding:0 2px;}
+.pager .pagerlabel{
+  margin-left:auto;font-family:'IBM Plex Mono',monospace;
+  font-size:12px;color:var(--ink-soft);
+}
+
+/* ---- comparison table (transposed: players across, stats down) ---- */
+.cmpstub{width:120px;min-width:120px;}
+/* The comparison is the one table that should not fill the page. Stretched
+   to full width, two players give two 590px columns with a single number
+   adrift in each; side by side only works if the sides are close enough to
+   read together. So it sizes to its content, and the columns have a floor
+   wide enough for a name. */
+table.cmptable{width:auto;}
+th.cmpcol{
+  text-align:left;padding:10px 14px 11px;vertical-align:bottom;
+  border-left:1px solid var(--rule-faint);
+  min-width:155px;
+}
+.cmpname{
+  font-family:'Archivo',sans-serif;font-size:15px;font-weight:600;
+  color:var(--ink);letter-spacing:-0.01em;white-space:nowrap;
+}
+.cmpscope{
+  margin-bottom:6px;font-size:12px;color:var(--ink-soft);font-weight:400;
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+}
+.badge--more{background:var(--bar) !important;color:var(--ink-soft) !important;
+  box-shadow:inset 0 0 0 1px var(--rule);}
+td.cmplabel{
+  font-family:'Archivo',sans-serif;font-size:13px;font-weight:500;
+  color:var(--ink-soft);white-space:nowrap;
+}
+td.cmpval{
+  text-align:left;padding-left:14px;font-size:14.5px;
+  border-left:1px solid var(--rule-faint);
+}
+/* The best value in each row, so the eye lands on the difference. */
+td.cmpval.leader{color:var(--pen);font-weight:600;}
+
+/* ---- team badges ---- */
+.badges{display:inline-flex;gap:4px;align-items:center;}
+.badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:38px;height:21px;padding:0 6px;border-radius:3px;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+  letter-spacing:0.02em;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);
+}
+td.teamcell{padding-top:5px;padding-bottom:5px;}
 
 /* ---- states ---- */
 .notice{
@@ -272,9 +619,11 @@ footer{
 }
 
 @media (max-width:620px){
-  .controls{gap:16px;}
-  .statpick{max-width:100%;}
-  .prompt{max-width:100%;}
+  .controls{gap:18px;justify-content:flex-start;}
+  .ctl--columns{flex-basis:100%;}
+  .statgroup{flex-basis:100%;}
+  /* On a phone the heading does need to wrap. */
+  .prompt{white-space:normal;}
 }
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important;}
@@ -285,55 +634,152 @@ footer{
 <div class="wrap">
 
   <header class="masthead">
-    <h1 class="wordmark">NBA Watcher</h1>
+    <h1 class="wordmark">Stat Merchant</h1>
     <div class="coverage" id="coverage">loading</div>
   </header>
 
   <section class="searchblock">
     <h2 class="prompt">Who are you looking up?</h2>
 
-    <div class="searchrow">
-      <svg class="magnifier" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.8 12.8 18 18"/>
-      </svg>
-      <input id="search" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Type a player's name"
-             role="combobox" aria-expanded="false" aria-controls="suggestions"
-             aria-label="Search for a player">
-      <div class="suggestions" id="suggestions" role="listbox"></div>
+    <div class="searchbar">
+      <div class="searchrow">
+        <svg class="magnifier" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.8 12.8 18 18"/>
+        </svg>
+        <input id="search" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Type a player's name"
+               role="combobox" aria-expanded="false" aria-controls="suggestions"
+               aria-label="Search for a player">
+        <div class="suggestions" id="suggestions" role="listbox"></div>
+      </div>
+      <button id="comparetoggle" class="comparebtn" aria-pressed="false"
+              data-tip="Pick several players and put their numbers side by side. Searching adds to the comparison instead of replacing it.">
+        Compare players
+      </button>
+      <button id="findtoggle" class="comparebtn" aria-pressed="false"
+              data-tip="Search individual games instead of season averages — every 50-point game, triple-doubles in a loss, 20 rebounds against one opponent.">
+        Find games
+      </button>
+    </div>
+
+    <div class="comparetray hidden" id="comparetray">
+      <span class="traylabel" id="traylabel">Search to add players</span>
+      <div class="traychips" id="traychips"></div>
+      <button class="trayclear" id="trayclear">Clear</button>
     </div>
 
     <div class="presets" id="presets"></div>
+
   </section>
 
+  <!-- Game finder. Only visible in finder mode; the conditions here apply to
+       one game at a time, which is what separates this view from the
+       season-average leaderboard above. -->
+  <section class="findpanel hidden" id="findpanel">
+    <!-- Named searches first. Someone who follows basketball recognises
+         "50-point games" instantly and would have to decode `pts >= 50`. -->
+    <div class="pickers" id="finderpresets"></div>
+
+    <div class="findfilters">
+      <div class="findfilter">
+        <label for="findteam">Playing for</label>
+        <select id="findteam" data-tip="Only games the player played for this team."><option value="">Any team</option></select>
+      </div>
+      <div class="findfilter">
+        <label for="findopp">Against</label>
+        <select id="findopp" data-tip="Only games against this team."><option value="">Any team</option></select>
+      </div>
+      <div class="findfilter">
+        <label for="findvenue">Where</label>
+        <select id="findvenue" data-tip="Home or road games only.">
+          <option value="">Home or road</option>
+          <option value="home">Home only</option>
+          <option value="away">Road only</option>
+        </select>
+      </div>
+      <div class="findfilter">
+        <label for="findresult">Result</label>
+        <select id="findresult" data-tip="Only games the player's team won or lost.">
+          <option value="">Won or lost</option>
+          <option value="W">Won only</option>
+          <option value="L">Lost only</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- The stat-by-stat builder, for the question no button covers. Shut by
+         default: it is the one part of this view that asks you to think in
+         columns, and most people never need it. -->
+    <details class="builder" id="builder">
+      <summary class="buildersummary">
+        <span class="builderchevron" aria-hidden="true">›</span>
+        Build your own search
+        <span class="buildernote">pick any stats and your own numbers</span>
+      </summary>
+      <div class="builderbody">
+        <p class="builderhint">
+          A game has to meet <strong>all</strong> of these at once.
+        </p>
+        <div class="condlist" id="condlist"></div>
+        <button class="addcond" id="addcond"
+                data-tip="Add another requirement. All of them must happen in the same game.">
+          + Add another
+        </button>
+      </div>
+    </details>
+  </section>
+
+  <!-- Columns comes first, on the left where reading starts. It is the
+       control people reach for most, and having it last meant hunting to the
+       far right of the strip to find it. -->
   <section class="controls" id="controls">
-    <div class="ctl">
-      <label for="season">Season</label>
-      <select id="season"><option value="">All seasons</option></select>
-    </div>
-    <div class="ctl">
-      <label for="seasontype">Games</label>
-      <select id="seasontype"></select>
-    </div>
-    <div class="ctl">
-      <label>Rate</label>
-      <div class="segment" id="permode" role="group" aria-label="Rate"></div>
-    </div>
-    <div class="ctl">
-      <label for="mingames">Min games</label>
-      <input id="mingames" type="number" min="0" step="1" value="0">
-    </div>
-    <div class="ctl">
-      <label>Columns</label>
-      <div class="statgroups">
-        <div class="statgroup">
-          <span class="grouplabel">Regular</span>
-          <div class="statpick" id="statpick"></div>
+    <div class="ctl ctl--columns">
+      <!-- Open with its summary hidden in the normal view, where picking
+           columns is half the point. The finder closes it: you came looking
+           for games, and two dozen abbreviations is the wrong thing to meet
+           on the way. -->
+      <details class="colwrap" id="colwrap" open>
+        <summary class="colsummary">
+          <span class="builderchevron" aria-hidden="true">›</span>
+          Choose columns
+        </summary>
+        <div class="colhead">
+          <label class="collabel">Columns</label>
+          <button class="colclear" id="colclear"
+                  data-tip="Strip the table back to games played, then add the columns you actually want.">
+            Clear all
+          </button>
         </div>
-        <div class="statgroup">
-          <span class="grouplabel">Advanced</span>
-          <div class="statpick" id="statpickadv"></div>
+        <div class="statgroups">
+          <div class="statgroup">
+            <span class="grouplabel">Regular</span>
+            <div class="statpick" id="statpick"></div>
+          </div>
+          <div class="statgroup">
+            <span class="grouplabel">Advanced</span>
+            <div class="statpick" id="statpickadv"></div>
+          </div>
         </div>
+        <p class="colnote hidden" id="colnote"></p>
+      </details>
+    </div>
+
+    <div class="ctlgroup">
+      <div class="ctl">
+        <label for="season">Season</label>
+        <select id="season" data-tip="Which season to show. <b>2024-25</b> is the season that began in 2024."><option value="">All seasons</option></select>
+      </div>
+      <div class="ctl">
+        <label for="seasontype">Games</label>
+        <select id="seasontype" data-tip="Regular season or playoff games. Playoff samples are short, so averages swing a lot."></select>
+      </div>
+      <div class="ctl" id="ctl-rate">
+        <label>Rate</label>
+        <div class="segment" id="permode" role="group" aria-label="Rate"></div>
+      </div>
+      <div class="ctl" id="ctl-mingames">
+        <label for="mingames">Min games</label>
+        <input id="mingames" type="number" min="0" step="1" value="0" data-tip="Hide players below this many games. The NBA requires <b>65</b> to qualify for a scoring title; <b>58</b> is about 70% of a season.">
       </div>
     </div>
   </section>
@@ -345,29 +791,31 @@ footer{
   <section id="results" class="hidden">
     <div class="sheethead">
       <h2 class="sheettitle" id="sheettitle">Results</h2>
-      <div class="rowcount" id="rowcount"></div>
+      <div class="rowcount"><span id="sorthint"></span><span id="rowcount"></span></div>
     </div>
     <div class="sheetscroll">
-      <table>
+      <table id="sheet">
         <thead id="thead"></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
+    <nav class="pager hidden" id="pager" aria-label="More players"></nav>
   </section>
 
   <section class="project hidden" id="projectpanel">
     <div class="projecthead">
       <h2 class="sheettitle">Next game</h2>
       <div class="projectctl" id="projectctls">
-        <select id="projstat" aria-label="Stat to project"></select>
-        <select id="projopp" aria-label="Opponent"><option value="">Any opponent</option></select>
-        <select id="projvenue" aria-label="Venue">
+        <select id="projstat" aria-label="Stat to project" data-tip="Which stat to project for the next game."></select>
+        <select id="projopp" aria-label="Opponent" data-tip="Adjusts for how much of this stat the opponent gives up compared with the league average."><option value="">Any opponent</option></select>
+        <select id="projvenue" aria-label="Venue" data-tip="Applies this player's own home or road split, shrunk toward neutral and capped at ±10%.">
           <option value="">Either venue</option>
           <option value="home">At home</option>
           <option value="away">On the road</option>
         </select>
         <input id="projline" type="number" step="0.5" placeholder="Line"
-               aria-label="Line to compare against">
+               aria-label="Line to compare against"
+               data-tip="Type an over/under line to see how often this player cleared it, and what the model puts the odds at.">
       </div>
     </div>
 
@@ -383,6 +831,60 @@ footer{
 <script>
 const $ = (id) => document.getElementById(id);
 
+/* ---------- hover explanations ----------
+   One tooltip element reused for everything, positioned next to whatever is
+   hovered or focused. Flips above the control when there's no room below, and
+   nudges itself back on screen near the edges. */
+const tipEl = Object.assign(document.createElement('div'), {className: 'tip'});
+document.body.appendChild(tipEl);
+let tipTimer = null;
+
+function showTip(target) {
+  const text = target.dataset.tip;
+  if (!text) return;
+  tipEl.innerHTML = text;           // data-tip is authored here, not user input
+  tipEl.classList.add('show');
+
+  const r = target.getBoundingClientRect();
+  const t = tipEl.getBoundingClientRect();
+  const gap = 8;
+
+  let top = r.bottom + gap;
+  if (top + t.height > window.innerHeight - 8) top = r.top - t.height - gap;
+
+  let left = r.left;
+  if (left + t.width > window.innerWidth - 8) left = window.innerWidth - t.width - 8;
+
+  tipEl.style.top = `${Math.max(8, top)}px`;
+  tipEl.style.left = `${Math.max(8, left)}px`;
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipEl.classList.remove('show');
+}
+
+// Delegated, so controls built later pick this up without extra wiring.
+document.addEventListener('mouseover', (e) => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) return;
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => showTip(t), 260);   // not on every passing cursor
+});
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest('[data-tip]')) hideTip();
+});
+document.addEventListener('focusin', (e) => {
+  const t = e.target.closest('[data-tip]');
+  if (t) showTip(t);
+});
+document.addEventListener('focusout', hideTip);
+document.addEventListener('scroll', hideTip, true);
+/* Once you've clicked, the hint has done its job — and a tooltip that stays
+   up covers the part of the page the click just revealed. */
+document.addEventListener('click', hideTip, true);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+
 const state = {
   meta: null,
   mode: null,            // {kind:'player'|'leaders'|'recipe', ...}
@@ -391,25 +893,51 @@ const state = {
   sort: null,
   sortAsc: false,
   rows: [],
+  total: 0,                // matching rows before the limit, for true ranking
+  page: 0,                 // which block of PAGE_SIZE rows is showing
   playerSeasons: null,     // non-null when the dropdown is scoped to one player
+  comparing: false,        // compare mode: searches add instead of replacing
+  compareSet: [],          // [{player_id, full_name}, …], max MAX_COMPARE
   needsSeasonScope: false,
+  finding: false,          // game finder: searching games, not season averages
+  conditions: [],          // [{field, op, value}, …] applied to a single game
+  find: {team:'', opponent:'', venue:'', result:'',
+         playerIds:null, playerLabel:''},
+  teams: [],               // abbreviations, for the finder's team dropdowns
 };
 
+/* Views where the database does the sorting and paging, so a header click has
+   to go back to the server: the top of the table is then the real leader, not
+   the best row on the current page. */
+const SERVER_SORTED = new Set(['all', 'games']);
+
 const PER_MODES = [
-  ['per_game', 'per game'],
-  ['totals',   'totals'],
-  ['per36',    'per 36'],
-  ['per100',   'per 100'],
+  ['per_game', 'per game',
+   'Season total divided by games played. The number most people quote.'],
+  ['totals', 'totals',
+   "Raw season totals. Rewards durability — a player who shows up 82 times."],
+  ['per36', 'per 36',
+   'Scaled to 36 minutes, so a bench player and a starter compare on even ' +
+   'footing. Assumes production would hold up over more minutes, which is a leap.'],
+  ['per100', 'per 100',
+   'Per 100 team possessions while on the floor. Adjusts for pace and playing ' +
+   'time, so fast and slow teams compare fairly.'],
 ];
 
 // Two ways in: browse everyone and sort, or search one player.
 const PRESETS = [
-  {label:'All players', run:() => allPlayers()},
-  {label:'Team ratings', run:() => recipe('team-ratings', {}, 'Team ratings')},
+  {label:'All players', run:() => allPlayers(),
+   tip:'Everyone who played, for the chosen season. Click any column header ' +
+       'to rank by it.'},
+  {label:'Team ratings', run:() => recipe('team-ratings', {}, 'Team ratings'),
+   tip:'Points scored and allowed per 100 possessions, by team. <b>Net</b> is ' +
+       'the difference, and it tracks win totals closely.'},
 ];
 
 const PRETTY = {
-  gp:'G', pts:'PTS', reb:'REB', oreb:'OREB', dreb:'DREB', ast:'AST', stl:'STL',
+  // "GP", not "G": it is the one column that survives Clear all, so it has
+  // to be unmistakable standing on its own.
+  gp:'GP', pts:'PTS', reb:'REB', oreb:'OREB', dreb:'DREB', ast:'AST', stl:'STL',
   blk:'BLK', tov:'TOV', pf:'PF', fgm:'FGM', fga:'FGA', fg3m:'3PM', fg3a:'3PA',
   ftm:'FTM', fta:'FTA', min:'MIN', plus_minus:'+/-', fg_pct:'FG%',
   fg3_pct:'3P%', ft_pct:'FT%', ts_pct:'TS%', efg_pct:'eFG%',
@@ -418,7 +946,8 @@ const PRETTY = {
   first_season:'From', last_season:'To', ppg:'PPG', rpg:'RPG', apg:'APG',
   total_pts:'Total', ortg:'ORtg', drtg:'DRtg', net_rtg:'Net', wins:'W',
   losses:'L', win_pct:'W%', home_wins:'Home W', away_wins:'Away W',
-  total_min:'MIN',
+  total_min:'MIN', counting:'Counting',
+  opp:'Opp', wl:'Result', score:'Score', cats:'10+ cats', margin:'Margin',
   usg_pct:'USG%', ast_pct:'AST%', ast_ratio:'AST/poss', reb_pct:'REB%',
   oreb_pct:'OREB%', dreb_pct:'DREB%', stl_pct:'STL%', blk_pct:'BLK%',
   tov_pct:'TOV%',
@@ -432,6 +961,21 @@ const PRETTY = {
 
 // Shown as a tooltip on each column chip, so the advanced ones aren't jargon.
 const STAT_HELP = {
+  pts:'Points.', reb:'Total rebounds.', ast:'Assists.', stl:'Steals.',
+  blk:'Blocks.', tov:'Turnovers.', min:'Minutes played.',
+  pf:'Personal fouls.',
+  fgm:'Field goals made.', fga:'Field goals attempted.',
+  fg_pct:'Field goal percentage. Treats a three the same as a layup, which is ' +
+         'why eFG% and TS% exist.',
+  fg3m:'Three-pointers made.', fg3a:'Three-pointers attempted.',
+  fg3_pct:'Three-point percentage.',
+  ftm:'Free throws made.', fta:'Free throws attempted.',
+  ft_pct:'Free throw percentage.',
+  oreb:'Offensive rebounds.', dreb:'Defensive rebounds.',
+  plus_minus:'Team point differential while this player was on the floor.',
+  double_doubles:'Games with 10 or more in two of points, rebounds, assists, ' +
+                 'steals or blocks.',
+  triple_doubles:'Games with 10 or more in three of those five categories.',
   usg_pct:'Usage rate: share of team plays this player used while on the floor',
   ast_pct:"Share of teammates' made field goals this player assisted",
   ast_ratio:'Assists per 100 possessions this player used',
@@ -443,10 +987,105 @@ const STAT_HELP = {
   tov_pct:'Turnovers per 100 possessions used',
   ts_pct:'True shooting: points per shooting possession, counting threes and free throws',
   efg_pct:'Effective FG%: field goal percentage with threes weighted 1.5',
+  cats:'How many of points, rebounds, assists, steals and blocks reached 10 ' +
+       'in this game. Two is a double-double, three a triple-double.',
+  margin:"The points the game was decided by, from this player's side: " +
+         'positive in a win, negative in a loss.',
 };
 
-const TEXT_COLS = new Set(['player','team','season','game_date','from','to']);
-const HIDDEN_COLS = new Set(['player_id','team_id']);
+/* Canonical column order — box-score order, not alphabetical and not the
+   order you happened to click the chips in. Columns always read left to right
+   the same way, so the table doesn't rearrange itself under you. */
+const STAT_ORDER = ['pts','reb','ast','stl','blk','tov','min',
+                    'double_doubles','triple_doubles','fgm','fga',
+                    'fg_pct','fg3m','fg3a','fg3_pct','ftm','fta','ft_pct',
+                    'oreb','dreb','pf','plus_minus'];
+const ADV_ORDER = ['usg_pct','ts_pct','efg_pct','ast_pct','ast_ratio',
+                   'reb_pct','oreb_pct','dreb_pct','stl_pct','blk_pct','tov_pct'];
+
+// Regular stats first, then advanced; anything unlisted goes last, in a
+// stable alphabetical order rather than an arbitrary one.
+const CANONICAL = [...STAT_ORDER, ...ADV_ORDER];
+const rank = (s) => {
+  const i = CANONICAL.indexOf(s);
+  return i === -1 ? CANONICAL.length : i;
+};
+const sortStats = (list) =>
+  [...list].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+
+/* Team colors, used for the badges in the Team column.
+
+   These are color swatches with the team's abbreviation, not logos — team
+   logos are trademarks and this doesn't reproduce them. The color still does
+   the work of letting you pick out a team at a glance.
+
+   Defunct and relocated franchises are included because they appear in older
+   seasons: Seattle, Vancouver, New Jersey, the original Charlotte Hornets. */
+const TEAM_COLORS = {
+  ATL:'#E03A3E', BOS:'#007A33', BKN:'#2B2F36', BRK:'#2B2F36', CHA:'#1D1160',
+  CHI:'#CE1141', CLE:'#860038', DAL:'#00538C', DEN:'#0E2240', DET:'#C8102E',
+  GSW:'#1D428A', GS:'#1D428A',  HOU:'#CE1141', IND:'#002D62', LAC:'#C8102E',
+  LAL:'#552583', MEM:'#5D76A9', MIA:'#98002E', MIL:'#00471B', MIN:'#0C2340',
+  NOP:'#0C2340', NOH:'#0C2340', NOK:'#0C2340', NYK:'#006BB6', NY:'#006BB6',
+  OKC:'#007AC1', ORL:'#0077C0', PHI:'#006BB6', PHX:'#1D1160', PHO:'#1D1160',
+  POR:'#E03A3E', SAC:'#5A2D81', SAS:'#A3ABB2', SA:'#A3ABB2',  TOR:'#CE1141',
+  UTA:'#002B5C', WAS:'#002B5C',
+  SEA:'#00653A', VAN:'#00B2A9', NJN:'#002A60', CHH:'#00788C',
+};
+
+/* Pick the label color that actually contrasts better against the swatch,
+   by comparing WCAG contrast ratios rather than guessing at a lightness
+   threshold. San Antonio's silver scores 9.0 against black and only 2.3
+   against white, so it gets black text; Boston's green goes the other way. */
+function labelOn(hex) {
+  const c = hex.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(c.slice(i, i + 2), 16) / 255);
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const vsWhite = 1.05 / (L + 0.05);
+  const vsBlack = (L + 0.05) / 0.05;
+  return vsBlack > vsWhite ? '#11141A' : '#FFFFFF';
+}
+
+/* A traded player's team cell holds several abbreviations ("BOS,LAL"), so
+   this returns one badge per team. */
+function teamBadges(value, cap = 0) {
+  const wrap = document.createElement('span');
+  wrap.className = 'badges';
+  let codes = String(value).split(',').filter(Boolean);
+  let extra = 0;
+  if (cap && codes.length > cap) {
+    extra = codes.length - cap;
+    codes = codes.slice(0, cap);
+  }
+  codes.forEach(ab => {
+    const code = ab.trim().toUpperCase();
+    const bg = TEAM_COLORS[code] || '#39414D';
+    const el = document.createElement('span');
+    el.className = 'badge';
+    el.style.background = bg;
+    el.style.color = labelOn(bg);
+    el.textContent = code;
+    el.title = code;
+    wrap.appendChild(el);
+  });
+  if (extra) {
+    const more = document.createElement('span');
+    more.className = 'badge badge--more';
+    more.textContent = `+${extra}`;
+    more.title = `${extra} more team${extra === 1 ? '' : 's'}`;
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+
+// Percentages stored as a 0–1 ratio, printed like a box score (.486).
+// Everything else ending in _pct is already 0–100.
+const RATIO_PCTS = new Set(['fg_pct','fg3_pct','ft_pct','ts_pct','efg_pct']);
+
+const TEXT_COLS = new Set(['player','team','season','game_date','from','to',
+                           'counting','scope','opp','wl','score']);
+const HIDDEN_COLS = new Set(['player_id','team_id','game_id']);
 
 /* ---------- season labels: 2023 is the 2023-24 season ---------- */
 const seasonLabel = (y) => `${y}-${String(y + 1).slice(-2)}`;
@@ -483,9 +1122,10 @@ async function boot() {
     $('seasontype').appendChild(o);
   });
 
-  PER_MODES.forEach(([val, label]) => {
+  PER_MODES.forEach(([val, label, tip]) => {
     const b = document.createElement('button');
     b.textContent = label;
+    b.dataset.tip = tip;
     b.className = val === state.perMode ? 'on' : '';
     b.onclick = () => {
       state.perMode = val;
@@ -494,14 +1134,6 @@ async function boot() {
     };
     $('permode').appendChild(b);
   });
-
-  // Box-score order, not alphabetical: nobody scans for PTS after 3PA.
-  const STAT_ORDER = ['pts','reb','ast','stl','blk','tov','min',
-                      'double_doubles','triple_doubles','fgm','fga',
-                      'fg_pct','fg3m','fg3a','fg3_pct','ftm','fta','ft_pct',
-                      'oreb','dreb','pf','plus_minus'];
-  const ADV_ORDER = ['usg_pct','ts_pct','efg_pct','ast_pct','ast_ratio',
-                     'reb_pct','oreb_pct','dreb_pct','stl_pct','blk_pct','tov_pct'];
 
   // TS% and eFG% are computed from the box score like any rate stat, but they
   // read as advanced metrics, so they're grouped where people look for them.
@@ -516,25 +1148,29 @@ async function boot() {
   const makeChip = (s, host) => {
     const b = document.createElement('button');
     b.textContent = PRETTY[s] || s;
-    b.title = STAT_HELP[s] || s;
+    b.dataset.tip = STAT_HELP[s] || `Show the ${PRETTY[s] || s} column.`;
     b.dataset.stat = s;
     b.className = state.stats.includes(s) ? 'on' : '';
     b.onclick = () => {
+      // Turning on a column the finder can't produce would look like the
+      // click did nothing, since the request drops it. Say so instead.
+      if (b.classList.contains('unavailable')) {
+        flashChip(b, 'Needs a season');
+        return;
+      }
       const i = state.stats.indexOf(s);
       if (i >= 0) {
-        // A table with no columns isn't a table. Keep the last one on and say
-        // why, instead of firing a query that can only come back empty.
-        if (state.stats.length === 1) {
-          flashChip(b, 'Keep at least one column');
-          return;
-        }
         state.stats.splice(i, 1);
-        // Dropping the sorted column: hand the sort to a column still showing.
-        if (state.sort === s) state.sort = state.stats[0];
+        // Dropping the sorted column: hand the sort to a column still
+        // showing, or to games played when that was the last one.
+        if (state.sort === s) state.sort = state.stats[0] || 'gp';
       } else {
-        state.stats.push(s);
+        // Insert in canonical position rather than appending, so clicking
+        // STL after BLK still shows ... STL, BLK ... in the table.
+        state.stats = sortStats([...state.stats, s]);
       }
       b.classList.toggle('on', state.stats.includes(s));
+      syncColumnChips();
       rerun();
     };
     $(host).appendChild(b);
@@ -542,16 +1178,56 @@ async function boot() {
 
   order(regular, STAT_ORDER).forEach(s => makeChip(s, 'statpick'));
   order([...advSet], ADV_ORDER).forEach(s => makeChip(s, 'statpickadv'));
+  $('colclear').addEventListener('click', toggleAllColumns);
+  syncColumnChips();
 
   PRESETS.forEach(p => {
     const b = document.createElement('button');
     b.className = 'chip'; b.textContent = p.label;
+    if (p.tip) b.dataset.tip = p.tip;
     b.onclick = () => { markChip(b); p.run(); };
     $('presets').appendChild(b);
   });
 
   ['season','seasontype','mingames'].forEach(id => {
     $(id).addEventListener('change', rerun);
+  });
+
+  // The two modes ask different questions, so entering one leaves the other.
+  // Switching between the two modes: the one being left does not restore the
+  // leaderboard, because the one being entered is about to draw. Letting it
+  // load would at best waste a query and at worst win the race and put the
+  // leaderboard back underneath the mode you just opened.
+  $('comparetoggle').addEventListener('click', () => {
+    const on = !state.comparing;
+    if (on && state.finding) setFinderMode(false, false);
+    setCompareMode(on);
+  });
+  $('trayclear').addEventListener('click', () => setCompareMode(false));
+
+  $('findtoggle').addEventListener('click', () => {
+    const on = !state.finding;
+    if (on && state.comparing) setCompareMode(false, false);
+    setFinderMode(on);
+  });
+
+  drawPickers(m);
+
+  ['team', 'opponent', 'venue', 'result'].forEach((key, i) => {
+    const el = $(['findteam', 'findopp', 'findvenue', 'findresult'][i]);
+    el.addEventListener('change', () => {
+      state.find[key] = el.value;
+      markFinderChip(null);          // no longer exactly what a preset asked
+      findGames();
+    });
+  });
+  $('addcond').addEventListener('click', () => {
+    addCondition();
+    drawConditions();
+    // Not searched yet: a condition with no value would change nothing, and
+    // the focus belongs in the box that was just added.
+    const last = $('condlist').lastElementChild;
+    if (last) last.querySelector('.condval').focus();
   });
 
   // Projection controls
@@ -561,10 +1237,21 @@ async function boot() {
     $('projstat').appendChild(o);
   });
   const teamList = await fetch('/api/teams').then(r => r.json()).catch(() => ({teams: []}));
-  teamList.teams.forEach(t => {
+  state.teams = teamList.teams || [];
+  state.teams.forEach(t => {
     const o = document.createElement('option');
     o.value = t.abbreviation; o.textContent = `vs ${t.abbreviation}`;
     $('projopp').appendChild(o);
+
+    // The finder's own two team dropdowns. Full names in the title, so a
+    // three-letter code that isn't obvious has somewhere to resolve.
+    ['findteam', 'findopp'].forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = t.abbreviation;
+      opt.textContent = t.abbreviation;
+      opt.title = t.full_name;
+      $(id).appendChild(opt);
+    });
   });
   ['projstat','projopp','projvenue'].forEach(id =>
     $(id).addEventListener('change', loadProjection));
@@ -580,6 +1267,33 @@ async function boot() {
 
 /* A brief inline note on the chip itself — closer to the action than a banner
    at the top of the page, and it clears itself. */
+/* The column defaults, remembered so Clear all has something to restore. */
+const DEFAULT_COLUMNS = ['pts', 'reb', 'ast'];
+
+/* Paint every chip from state, and make the Clear all button say what it
+   will do next. With nothing selected the only thing left to offer is the
+   way back, so the same button becomes Restore. */
+function syncColumnChips() {
+  ['statpick', 'statpickadv'].forEach(host => {
+    [...$(host).children].forEach(
+      b => b.classList.toggle('on', state.stats.includes(b.dataset.stat)));
+  });
+  const empty = state.stats.length === 0;
+  $('colclear').textContent = empty ? 'Restore defaults' : 'Clear all';
+  $('colclear').dataset.tip = empty
+    ? 'Put points, rebounds and assists back.'
+    : 'Strip the table back to games played, then add the columns you actually want.';
+}
+
+function toggleAllColumns() {
+  // Games played stays whatever happens — it is selected by the query itself,
+  // not by a chip — so clearing leaves a legible table rather than nothing.
+  state.stats = state.stats.length ? [] : [...DEFAULT_COLUMNS];
+  state.sort = state.stats[0] || 'gp';
+  syncColumnChips();
+  rerun();
+}
+
 function flashChip(btn, message) {
   const original = btn.textContent;
   btn.textContent = message;
@@ -600,6 +1314,14 @@ let sugIndex = -1, sugItems = [], searchTimer = null;
 $('search').addEventListener('input', () => {
   clearTimeout(searchTimer);
   const q = $('search').value.trim();
+  // Emptying the box in finder mode drops the player filter, so the search
+  // goes back to the whole league rather than quietly keeping the last name.
+  if (state.finding && !q && state.find.playerIds) {
+    state.find.playerIds = null;
+    state.find.playerLabel = '';
+    closeSug();
+    return findGames();
+  }
   if (q.length < 2) return closeSug();
   searchTimer = setTimeout(() => lookup(q), 140);
 });
@@ -637,7 +1359,25 @@ async function lookup(q) {
       : `${p.first_season}–${p.last_season + 1}`;
     d.innerHTML = `<span class="sug-name"></span><span class="sug-meta">${span}, ${p.gp} G</span>`;
     d.querySelector('.sug-name').textContent = p.full_name;
-    d.onclick = () => { $('search').value = p.full_name; closeSug(); markChip(null); showPlayer(p.full_name); };
+    d.onclick = () => {
+      closeSug();
+      markChip(null);
+      if (state.comparing) {
+        // Adding to the set, not navigating away from it.
+        $('search').value = '';
+        addToComparison(p);
+      } else if (state.finding) {
+        // In the finder the box is a filter, not a way out of the view.
+        // Keeping the id means "Curry" is the one that was clicked.
+        $('search').value = p.full_name;
+        state.find.playerIds = [p.player_id];
+        state.find.playerLabel = p.full_name;
+        findGames();
+      } else {
+        $('search').value = p.full_name;
+        showPlayer(p.full_name);
+      }
+    };
     box.appendChild(d);
   });
   openSug();
@@ -698,11 +1438,816 @@ function showPlayer(name) {
   fillSeasons([], '');                        // "Whole career" while loading
   run();
 }
+/* ---------- comparison ----------
+   Searching in compare mode adds a player to the set rather than replacing
+   the view. Capped, because past five or six columns a comparison table is
+   just a leaderboard with extra steps. */
+const MAX_COMPARE = 6;
+
+/* `restore` is false when this mode is being switched off so the other one
+   can take over: the incoming mode will draw, and loading the leaderboard
+   in between is both wasted and, if it resolves late, wrong. */
+function setCompareMode(on, restore = true) {
+  state.comparing = on;
+  $('comparetoggle').setAttribute('aria-pressed', String(on));
+  $('comparetray').classList.toggle('hidden', !on);
+  // The browse views would drop you straight out of the comparison you are
+  // building, so they are out of the way while comparing.
+  $('presets').classList.toggle('hidden', on);
+  $('search').placeholder = on
+    ? 'Add a player to the comparison' : "Type a player's name";
+  if (on) {
+    markChip(null);
+    $('projectpanel').classList.add('hidden');
+    drawTray();
+    if (state.compareSet.length) {
+      comparePlayers();
+    } else {
+      // Nothing to compare yet. Leaving the leaderboard up would look like
+      // it was part of the comparison; the tray label says what to do next.
+      claimView();
+      state.mode = {kind: 'compare'};
+      $('results').classList.add('hidden');
+      $('pager').classList.add('hidden');
+      $('notice').classList.add('hidden');
+    }
+  } else if (restore) {
+    // Dismissed on purpose, so the comparison goes with it.
+    state.compareSet = [];
+    markChip($('presets').firstElementChild);
+    allPlayers();
+  }
+  // Otherwise the finder is taking over and will draw for itself. The set
+  // stays: looking at something else is not the same as being finished with
+  // the comparison, and rebuilding it after a glance at the game finder
+  // would be the worse surprise.
+}
+
+/* ---------- game finder ----------
+   The leaderboard answers "who averaged the most"; this answers "which games
+   actually happened". Conditions are ANDed and all apply to the same game, so
+   "pts >= 40 and reb >= 15" means one player doing both on one night.
+
+   The conditions live in state and are serialised into a single `where`
+   parameter ("pts>=40,reb>=15"); the server parses it against an allowlist of
+   fields and operators, so nothing typed here reaches SQL as text. */
+/* Written out, because "≥" is a maths symbol and this is a basketball page.
+   The wire value is what the server parses; the words are what the dropdown
+   shows. */
+const FINDER_OPS = [['>=', 'at least'], ['>', 'more than'], ['=', 'exactly'],
+                    ['<=', 'at most'], ['<', 'fewer than'], ['!=', 'not']];
+
+// Offered in the condition dropdown, in this order — the stats people actually
+// filter on first, then the long tail. Anything the server accepts but isn't
+// listed here is still reachable by hand-editing the URL.
+const COND_FIELDS = ['pts','reb','ast','stl','blk','tov','min','cats',
+                     'fg3m','fg3a','fgm','fga','ftm','fta','oreb','dreb','pf',
+                     'plus_minus','margin','fg_pct','fg3_pct','ft_pct','ts_pct',
+                     'efg_pct'];
+
+/* Two namings per stat, because they do different jobs. FIELD_NAME labels the
+   dropdown, where it stands alone and is capitalised. FIELD_NOUN goes into
+   the sentence above the table ("Games with 50+ points"), where it has to be
+   lower case and read as English. Neither is an abbreviation: the column
+   headers can stay terse because they sit over numbers that explain them,
+   but a filter you are choosing blind cannot. */
+const FIELD_NAME = {
+  pts:'Points', reb:'Rebounds', ast:'Assists', stl:'Steals', blk:'Blocks',
+  tov:'Turnovers', min:'Minutes played', cats:'Categories in double figures',
+  fg3m:'Three-pointers made', fg3a:'Three-pointers attempted',
+  fgm:'Field goals made', fga:'Field goals attempted',
+  ftm:'Free throws made', fta:'Free throws attempted',
+  oreb:'Offensive rebounds', dreb:'Defensive rebounds', pf:'Fouls',
+  plus_minus:'Plus/minus', margin:'Won or lost by',
+  fg_pct:'Field goal %', fg3_pct:'Three-point %', ft_pct:'Free throw %',
+  ts_pct:'True shooting %', efg_pct:'Effective field goal %',
+};
+const FIELD_NOUN = {
+  pts:'points', reb:'rebounds', ast:'assists', stl:'steals', blk:'blocks',
+  tov:'turnovers', min:'minutes', cats:'categories in double figures',
+  fg3m:'threes', fg3a:'three-point attempts',
+  fgm:'field goals', fga:'shot attempts',
+  ftm:'free throws', fta:'free-throw attempts',
+  oreb:'offensive rebounds', dreb:'defensive rebounds', pf:'fouls',
+  plus_minus:'plus/minus', margin:'point margin',
+  fg_pct:'field goal shooting', fg3_pct:'three-point shooting',
+  ft_pct:'free-throw shooting', ts_pct:'true shooting',
+  efg_pct:'effective field goal shooting',
+};
+
+const MAX_CONDITIONS = 6;
+
+const isRateField = (f) => (state.meta.finder_rate_fields || []).includes(f);
+
+/* Shooting rates are stored 0–1 and shown 0–100.
+
+   Asking someone to type 0.6 for 60% is the single most confusing thing about
+   filtering on a percentage, and typing 60 by mistake silently matches no
+   game at all — a filter that looks broken rather than wrong. So the box
+   takes a percentage, and the conversion happens on the way to the server. */
+const toDisplay = (field, wire) =>
+  isRateField(field) ? String(Math.round(Number(wire) * 1000) / 10) : String(wire);
+const toWire = (field, shown) =>
+  isRateField(field) ? String(Number(shown) / 100) : String(shown).trim();
+
+function setFinderMode(on, restore = true) {
+  state.finding = on;
+  $('findtoggle').setAttribute('aria-pressed', String(on));
+  $('findpanel').classList.toggle('hidden', !on);
+  // Season averages and single games are different questions, so the browse
+  // presets are out of the way while finding games.
+  $('presets').classList.toggle('hidden', on);
+  // Neither control means anything for one game: there is no rate to convert
+  // to, and "minimum games" is a season filter.
+  $('ctl-rate').classList.toggle('hidden', on);
+  $('ctl-mingames').classList.toggle('hidden', on);
+  $('controls').classList.toggle('controls--find', on);
+  $('colwrap').classList.toggle('colwrap--fold', on);
+  $('colwrap').open = !on;
+  $('search').placeholder = on
+    ? 'Filter by player (optional)' : "Type a player's name";
+  markStatAvailability();
+
+  if (on) {
+    markChip(null);
+    $('projectpanel').classList.add('hidden');
+    // Land on a real search rather than every game in the season. One of the
+    // named ones shows what this view is for in a way no empty form does,
+    // and it fills the builder in for anyone who then opens it.
+    const first = $('finderpresets').querySelector('.picker');
+    if (first) first.click();
+    else { if (!state.conditions.length) addCondition(); drawConditions(); findGames(); }
+  } else {
+    markFinderChip(null);
+    $('search').value = '';
+    state.find = {team:'', opponent:'', venue:'', result:'',
+                  playerIds:null, playerLabel:''};
+    ['findteam','findopp','findvenue','findresult'].forEach(id => $(id).value = '');
+    if (restore) {
+      markChip($('presets').firstElementChild);
+      allPlayers();
+    }
+    // Otherwise compare mode is taking over and will draw for itself.
+  }
+}
+
+function markFinderChip(active) {
+  $('finderpresets').querySelectorAll('.picker').forEach(
+    c => c.classList.toggle('on', c === active));
+}
+
+/* The named searches, grouped, each with its explanation visible rather than
+   hidden behind a hover. */
+function drawPickers(meta) {
+  const host = $('finderpresets');
+  const presets = meta.finder_presets || [];
+  const groups = (meta.finder_groups || []).filter(
+    g => presets.some(p => p.group === g));
+  // Anything the server adds without a group still gets shown.
+  const ungrouped = presets.filter(p => !groups.includes(p.group));
+  if (ungrouped.length) groups.push(null);
+
+  groups.forEach(group => {
+    const mine = group === null ? ungrouped
+                                : presets.filter(p => p.group === group);
+    if (!mine.length) return;
+    const block = document.createElement('div');
+    block.className = 'pickergroup';
+    if (group) {
+      const h = document.createElement('div');
+      h.className = 'pickerhead';
+      h.textContent = group;
+      block.appendChild(h);
+    }
+    const row = document.createElement('div');
+    row.className = 'pickerrow';
+    mine.forEach(spec => {
+      const b = document.createElement('button');
+      b.className = 'picker';
+      b.innerHTML = `<span class="pickername"></span>
+                     <span class="pickerwhy"></span>`;
+      b.querySelector('.pickername').textContent = spec.label;
+      b.querySelector('.pickerwhy').textContent = spec.help || '';
+      b.onclick = () => runFinderPreset(spec, b);
+      row.appendChild(b);
+    });
+    block.appendChild(row);
+    host.appendChild(block);
+  });
+}
+
+/* Columns that can't be computed from a single game — usage rate needs team
+   totals over a season, a double-double count needs many games — are taken
+   out of the picker here rather than shown struck through. They aren't part
+   of a single game's vocabulary, and a row of crossed-out abbreviations is
+   just more to decode. If one was already switched on, a line underneath
+   says so, since a column vanishing with no explanation is worse. */
+function markStatAvailability() {
+  const ok = new Set(state.meta.finder_fields || []);
+  const dropped = [];
+  ['statpick', 'statpickadv'].forEach(host => {
+    [...$(host).children].forEach(b => {
+      const stat = b.dataset.stat;
+      const bad = state.finding && !ok.has(stat);
+      b.classList.toggle('unavailable', bad);
+      if (bad && state.stats.includes(stat)) dropped.push(PRETTY[stat] || stat);
+    });
+  });
+
+  const note = $('colnote');
+  note.classList.toggle('hidden', !dropped.length);
+  if (dropped.length) {
+    note.textContent =
+      `${listWords(dropped)} ${dropped.length === 1 ? 'needs' : 'need'} a ` +
+      `whole season to work out, so ${dropped.length === 1 ? "it's" : "they're"} ` +
+      `off while you're looking at single games.`;
+    // The note explains a column that just vanished from the table, so it
+    // can't sit inside a block that is folded shut.
+    $('colwrap').open = true;
+  }
+}
+
+// "PTS", "PTS and REB", "PTS, REB and AST" — the serial comma left out on
+// purpose, since these are short labels rather than clauses.
+function listWords(words) {
+  if (words.length <= 1) return words[0] || '';
+  return words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+}
+
+// Only the columns a game row can actually carry, so switching into the finder
+// with usage rate selected doesn't send a request that can only fail. An
+// empty result is fine: the game context columns stand on their own.
+function finderStats() {
+  const ok = new Set(state.meta.finder_fields || []);
+  return state.stats.filter(s => ok.has(s));
+}
+
+function addCondition(field = 'pts', op = '>=', value = '') {
+  if (state.conditions.length >= MAX_CONDITIONS) return;
+  state.conditions.push({field, op, value});
+}
+
+// Rows the user hasn't finished typing are skipped rather than sent as
+// "pts>=", which the server would rightly reject. A number is what arms one.
+const armed = () => state.conditions.filter(c => String(c.value).trim() !== '');
+
+function conditionString() {
+  return armed()
+    .map(c => `${c.field}${c.op}${toWire(c.field, c.value)}`)
+    .join(',');
+}
+
+/* One condition as English: "50+ points", "70%+ true shooting".
+
+   The heading is the only place that explains what you are looking at, so it
+   is worth not writing it in operators. Double- and triple-doubles get their
+   own names, because "3+ categories in double figures" is the definition of
+   a thing everyone already has a word for. */
+function phrase(c) {
+  const n = String(c.value).trim();
+  if (c.field === 'cats' && c.op === '>=') {
+    if (+n === 3) return 'a triple-double';
+    if (+n === 2) return 'a double-double';
+  }
+  const noun = FIELD_NOUN[c.field] || c.field;
+  const num = isRateField(c.field) ? `${n}%` : n;
+  switch (c.op) {
+    case '>=': return `${num}+ ${noun}`;
+    case '>':  return `more than ${num} ${noun}`;
+    case '=':  return `exactly ${num} ${noun}`;
+    case '<=': return `${num} or less ${noun}`;
+    case '<':  return `under ${num} ${noun}`;
+    default:   return `not ${num} ${noun}`;
+  }
+}
+
+function describeConditions() {
+  return listWords(armed().map(phrase));
+}
+
+/* The heading has to name every filter that ran, not just the conditions.
+   "Games with 30+ points" sitting above a list that is silently losses-only
+   misrepresents what you are looking at. */
+function finderTitle(typed, season) {
+  const what = describeConditions();
+  const bits = [];
+  if (state.find.team) bits.push(`for ${state.find.team}`);
+  if (state.find.opponent) bits.push(`against ${state.find.opponent}`);
+  if (state.find.venue) {
+    bits.push(state.find.venue === 'home' ? 'at home' : 'on the road');
+  }
+  if (state.find.result) {
+    bits.push(state.find.result === 'W' ? 'in a win' : 'in a loss');
+  }
+  return (typed ? `${typed}: games` : 'Games') +
+         (what ? ` with ${what}` : '') +
+         (bits.length ? ' ' + bits.join(' ') : '') +
+         (season ? `, ${seasonLabel(+season)}` : '');
+}
+
+function drawConditions() {
+  const host = $('condlist');
+  host.innerHTML = '';
+
+  state.conditions.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'condrow';
+
+    // Editing by hand is a different search from the one a button named, so
+    // the highlighted card lets go rather than claiming the result.
+    const ownIt = () => markFinderChip(null);
+
+    const fieldSel = document.createElement('select');
+    fieldSel.className = 'condfield';
+    fieldSel.setAttribute('aria-label', 'Which stat');
+    COND_FIELDS.forEach(f => {
+      const o = document.createElement('option');
+      o.value = f; o.textContent = FIELD_NAME[f] || PRETTY[f] || f;
+      fieldSel.appendChild(o);
+    });
+    fieldSel.value = c.field;
+    fieldSel.onchange = () => {
+      // A count and a percentage aren't on the same scale, so carrying the
+      // number across that boundary turns "50 points" into "50% shooting",
+      // which is a different question than the one being asked. Clearing it
+      // asks for a new number instead of quietly changing the meaning.
+      if (isRateField(c.field) !== isRateField(fieldSel.value)) c.value = '';
+      c.field = fieldSel.value;
+      ownIt();
+      drawConditions();
+      findGames();
+    };
+
+    const opSel = document.createElement('select');
+    opSel.className = 'condop';
+    opSel.setAttribute('aria-label', 'How many');
+    FINDER_OPS.forEach(([val, label]) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = label;
+      opSel.appendChild(o);
+    });
+    opSel.value = c.op;
+    opSel.onchange = () => { c.op = opSel.value; ownIt(); findGames(); };
+
+    const rate = isRateField(c.field);
+    const wrap = document.createElement('div');
+    wrap.className = 'condvalwrap' + (rate ? ' pct' : '');
+    const val = document.createElement('input');
+    val.type = 'number';
+    val.className = 'condval';
+    val.step = rate ? '1' : '1';
+    val.placeholder = rate ? '60' : '0';
+    val.value = c.value;
+    val.setAttribute('aria-label', rate ? 'Percentage' : 'How many');
+    val.dataset.tip = rate
+      ? 'A percentage — type <b>60</b> for 60%.'
+      : 'How many, in a single game.';
+    let t = null;
+    val.oninput = () => {
+      c.value = val.value;
+      ownIt();
+      clearTimeout(t);
+      t = setTimeout(findGames, 400);     // not a request per keystroke
+    };
+    wrap.appendChild(val);
+
+    row.append(fieldSel, opSel, wrap);
+
+    // The last remaining row keeps its place: an empty builder would leave
+    // nothing to type into and no obvious way back.
+    if (state.conditions.length > 1) {
+      const drop = document.createElement('button');
+      drop.className = 'conddrop';
+      drop.textContent = '×';
+      drop.title = 'Remove this';
+      drop.setAttribute('aria-label', 'Remove this requirement');
+      drop.onclick = () => {
+        state.conditions.splice(i, 1);
+        ownIt();
+        drawConditions();
+        findGames();
+      };
+      row.appendChild(drop);
+    }
+    host.appendChild(row);
+  });
+
+  $('addcond').disabled = state.conditions.length >= MAX_CONDITIONS;
+}
+
+/* Run a named preset: set the conditions it describes and the sort that makes
+   it readable, then search. */
+function runFinderPreset(spec, btn) {
+  markFinderChip(btn);
+  state.conditions = [];
+  (spec.conditions || '').split(',').filter(Boolean).forEach(part => {
+    const m = part.match(/^([a-z0-9_]+)(>=|<=|!=|>|<|=)(.+)$/i);
+    // The preset is written in the server's units (ts_pct>=0.7); the builder
+    // shows percentages, so 0.7 becomes 70 on the way in.
+    if (m) addCondition(m[1], m[2], toDisplay(m[1], m[3]));
+  });
+  if (!state.conditions.length) addCondition();
+
+  // A preset may pin a filter of its own ("40 in a loss"), and clears the
+  // others so two presets in a row don't silently compound.
+  state.find.team = '';
+  state.find.opponent = '';
+  state.find.venue = spec.venue || '';
+  state.find.result = spec.result || '';
+  $('findteam').value = '';
+  $('findopp').value = '';
+  $('findvenue').value = state.find.venue;
+  $('findresult').value = state.find.result;
+
+  state.sort = spec.order_by || 'game_date';
+  state.sortAsc = false;
+  drawConditions();
+  findGames();
+}
+
+function findGames() {
+  state.mode = {kind: 'games'};
+  state.page = 0;
+  restoreAllSeasons();
+  $('projectpanel').classList.add('hidden');
+  run();
+}
+
+async function addToComparison(player) {
+  // The same player may appear twice under different scopes — comparing
+  // Jordan's Bulls years against his Wizards years is the point — so entries
+  // are keyed by a counter rather than by player.
+  if (state.compareSet.length >= MAX_COMPARE) return;
+
+  const entry = {
+    key: ++compareKey,
+    player_id: player.player_id,
+    full_name: player.full_name,
+    scope: 'career~',          // "<kind>~<value>"
+    scopes: null,
+  };
+  state.compareSet.push(entry);
+  drawTray();
+  comparePlayers();
+
+  // Which seasons and teams this player actually has, for the dropdown.
+  try {
+    entry.scopes = await fetch(
+      `/api/scopes?player_id=${player.player_id}` +
+      `&season_type=${encodeURIComponent($('seasontype').value)}`
+    ).then(r => r.json());
+    drawTray();
+  } catch (e) { /* the career default still works without them */ }
+}
+
+let compareKey = 0;
+
+function removeFromComparison(key) {
+  state.compareSet = state.compareSet.filter(p => p.key !== key);
+  drawTray();
+  if (state.compareSet.length) {
+    comparePlayers();
+  } else {
+    // Removing the last chip while an earlier comparison is still loading:
+    // claim the view so that response is discarded rather than drawn into
+    // an empty tray.
+    claimView();
+    $('results').classList.add('hidden');
+    $('notice').classList.add('hidden');
+  }
+}
+
+function duplicateEntry(key) {
+  const src = state.compareSet.find(p => p.key === key);
+  if (!src || state.compareSet.length >= MAX_COMPARE) return;
+  state.compareSet.push({...src, key: ++compareKey});
+  drawTray();
+  comparePlayers();
+}
+
+function drawTray() {
+  const n = state.compareSet.length;
+  $('traylabel').textContent = n
+    ? `Comparing ${n}${n >= MAX_COMPARE ? ` (max ${MAX_COMPARE})` : ''}`
+    : 'Search to add players';
+  const host = $('traychips');
+  host.innerHTML = '';
+  state.compareSet.forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'traychip';
+
+    const top = document.createElement('div');
+    top.className = 'chiptop';
+    const name = document.createElement('span');
+    name.className = 'chipname';
+    name.textContent = p.full_name;
+
+    // What to count for this entry: the whole career, one team, or one
+    // season. This is what lets Harden's Rockets years sit next to Jordan's
+    // Wizards years in the same table.
+    const wrap = document.createElement('div');
+    wrap.className = 'scopewrap';
+    const scope = document.createElement('select');
+    scope.className = 'scopesel';
+    scope.setAttribute('aria-label', `What to count for ${p.full_name}`);
+    scope.innerHTML = '<option value="career~">Whole career</option>';
+
+    if (p.scopes) {
+      if (p.scopes.teams && p.scopes.teams.length > 1) {
+        const g = document.createElement('optgroup');
+        g.label = 'One team only';
+        p.scopes.teams.forEach(t => {
+          const o = document.createElement('option');
+          o.value = `team~${t.team}`;
+          o.textContent = `${t.team} · ${t.gp} G`;
+          g.appendChild(o);
+        });
+        scope.appendChild(g);
+      }
+      if (p.scopes.seasons && p.scopes.seasons.length) {
+        const g = document.createElement('optgroup');
+        g.label = 'One season';
+        p.scopes.seasons.forEach(s => {
+          const o = document.createElement('option');
+          o.value = `season~${s.season}`;
+          o.textContent = `${seasonLabel(s.season)} · ${s.gp} G`;
+          g.appendChild(o);
+        });
+        scope.appendChild(g);
+      }
+    }
+    scope.value = p.scope;
+    scope.onchange = () => {
+      p.scope = scope.value;
+      paintChip(chip, p);
+      comparePlayers();
+    };
+
+    const dup = document.createElement('button');
+    dup.textContent = '+';
+    dup.title = 'Add this player again, to compare two of their stints';
+    dup.setAttribute('aria-label', `Add another ${p.full_name} entry`);
+    dup.onclick = () => duplicateEntry(p.key);
+
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.setAttribute('aria-label', `Remove ${p.full_name}`);
+    x.onclick = () => removeFromComparison(p.key);
+
+    top.append(name, dup, x);
+    wrap.appendChild(scope);
+    chip.append(top, wrap);
+    paintChip(chip, p);
+    host.appendChild(chip);
+  });
+}
+
+/* The color of an entry is the team it unambiguously belongs to.
+
+   A team scope is obvious. A career scope counts too when the player only
+   ever played for one team — Curry, Dirk, Tatum — because "whole career" and
+   "on the Warriors" are the same set of games for them. Same for a season
+   the player spent entirely with one team. Anything spanning two teams stays
+   neutral, since no single color would be honest. */
+function entryColor(entry) {
+  const [kind, value] = entry.scope.split('~');
+  if (kind === 'team') return TEAM_COLORS[value] || null;
+
+  const teams = entry.scopes && entry.scopes.teams;
+  if (!teams || !teams.length) return null;
+
+  if (kind === 'career') {
+    return teams.length === 1 ? (TEAM_COLORS[teams[0].team] || null) : null;
+  }
+  if (kind === 'season') {
+    const year = Number(value);
+    const inThatYear = teams.filter(
+      t => year >= t.first_season && year <= t.last_season);
+    return inThatYear.length === 1
+      ? (TEAM_COLORS[inThatYear[0].team] || null) : null;
+  }
+  return null;
+}
+
+function paintChip(chip, entry) {
+  chip.style.borderLeftColor = entryColor(entry) || '';
+}
+
+async function comparePlayers() {
+  const ticket = ++fetchSeq;
+  state.mode = {kind: 'compare'};
+  restoreAllSeasons();
+  $('projectpanel').classList.add('hidden');
+
+  if (!state.compareSet.length) return;
+
+  const p = new URLSearchParams({
+    stats: state.stats.join(','),
+    per_mode: state.perMode,
+    season_type: $('seasontype').value,
+  });
+  state.compareSet.forEach(e => {
+    const [kind, value] = e.scope.split('~');
+    p.append('p', `${e.player_id}~${kind}~${value || ''}`);
+  });
+
+  $('loading').classList.remove('hidden');
+  let data;
+  try {
+    data = await fetch('/api/compare?' + p).then(r => r.json());
+  } catch (err) {
+    if (ticket !== fetchSeq) return;
+    $('loading').classList.add('hidden');
+    return showNotice('Lost the server',
+      '<p>Restart it with <code>nbastats serve</code>.</p>');
+  }
+  // Changing a scope twice quickly queues two requests; only the latest may
+  // draw, or the table ends up showing a scope the tray no longer says.
+  if (ticket !== fetchSeq) return;
+  $('loading').classList.add('hidden');
+
+  if (data.error) {
+    return showNotice("That comparison didn't work",
+                      `<p>${escapeHtml(data.error)}</p>`);
+  }
+
+  state.rows = data.rows || [];
+  state.total = state.rows.length;
+  state.sort = null;              // entries stay in the order they were added
+  $('sheettitle').textContent = 'Comparison';
+  drawComparison(data.stats || state.stats);
+}
+
+/* A comparison reads better transposed: one column per player, one row per
+   stat. Side by side is how you actually compare two lines — scanning down a
+   column of PTS, REB, AST beats scanning across a wide table. Adding a stat
+   adds a row here, where the normal table would add a column. */
+const LOWER_IS_BETTER = new Set(['tov', 'pf', 'tov_pct']);
+
+/* ---------- paging ----------
+   Only the browse view pages: a career table and a comparison are short by
+   nature. Page count follows whatever the filters match, so raising the
+   minimum games shrinks the number of pages rather than leaving empty ones. */
+const PAGE_SIZE = 100;
+
+function goToPage(n) {
+  state.page = Math.max(0, n);
+  run();
+  // The table may be below the fold after a jump, so bring it into view.
+  $('results').scrollIntoView({block: 'start', behavior: 'smooth'});
+}
+
+function drawPager() {
+  const pager = $('pager');
+  pager.innerHTML = '';
+
+  const pages = Math.ceil(state.total / PAGE_SIZE);
+  if (!SERVER_SORTED.has(state.mode.kind) || pages <= 1) {
+    pager.classList.add('hidden');
+    return;
+  }
+  pager.classList.remove('hidden');
+
+  const btn = (label, page, {current = false, disabled = false, title} = {}) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (title) b.title = title;
+    if (current) { b.className = 'on'; b.setAttribute('aria-current', 'page'); }
+    b.disabled = disabled;
+    if (!disabled && !current) b.onclick = () => goToPage(page);
+    pager.appendChild(b);
+  };
+  const gap = () => {
+    const s = document.createElement('span');
+    s.className = 'gap'; s.textContent = '…';
+    pager.appendChild(s);
+  };
+
+  btn('‹', state.page - 1, {disabled: state.page === 0, title: 'Previous'});
+
+  // A window around the current page, with the first and last always
+  // reachable — 500 page buttons would be worse than none.
+  const window_ = 2;
+  const shown = new Set([0, pages - 1]);
+  for (let i = state.page - window_; i <= state.page + window_; i++) {
+    if (i >= 0 && i < pages) shown.add(i);
+  }
+  let last = -1;
+  [...shown].sort((a, b) => a - b).forEach(i => {
+    if (i - last > 1) gap();
+    const from = i * PAGE_SIZE + 1;
+    const to = Math.min((i + 1) * PAGE_SIZE, state.total);
+    btn(`${from}–${to}`, i, {current: i === state.page});
+    last = i;
+  });
+
+  btn('›', state.page + 1,
+      {disabled: state.page >= pages - 1, title: 'Next'});
+
+  const label = document.createElement('span');
+  label.className = 'pagerlabel';
+  label.textContent = `page ${state.page + 1} of ${pages}`;
+  pager.appendChild(label);
+}
+
+function drawComparison(stats) {
+  const entries = state.rows;
+  if (!entries.length) {
+    return showNotice('Nobody to compare',
+      '<p>Search for a player to add them.</p>');
+  }
+
+  const thead = $('thead');
+  const tbody = $('tbody');
+  thead.innerHTML = '';
+  tbody.innerHTML = '';
+  $('sheet').classList.add('cmptable');
+
+  // Header: a stub cell, then one column per entry.
+  const hr = document.createElement('tr');
+  const stub = document.createElement('th');
+  stub.className = 'text cmpstub';
+  hr.appendChild(stub);
+
+  entries.forEach(e => {
+    const th = document.createElement('th');
+    th.className = 'cmpcol';
+    const name = document.createElement('div');
+    name.className = 'cmpname';
+    name.textContent = e.player;
+    const scope = document.createElement('div');
+    scope.className = 'cmpscope';
+    if (/^[A-Z]{2,3}$/.test(e.counting)) {
+      // A team scope: the badge is the label.
+      scope.appendChild(teamBadges(e.counting));
+    } else {
+      // Career or one season — say which, and show the teams it covers, so a
+      // one-team career still reads in that team's colors.
+      const txt = document.createElement('span');
+      txt.textContent = e.counting;
+      scope.appendChild(txt);
+      if (e.team) scope.appendChild(teamBadges(e.team, 4));
+    }
+    // Team above the name, matching the row-oriented tables where the badge
+    // comes before it. In a stacked header "before" means above.
+    th.append(scope, name);
+    hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+
+  // Transposed, so the column order of every other table becomes the row
+  // order here: games played and minutes first, then the stats.
+  const statRows = orderColumns(['gp', ...stats]);
+  statRows.forEach(stat => {
+    const tr = document.createElement('tr');
+    const label = document.createElement('td');
+    label.className = 'text cmplabel';
+    label.textContent = PRETTY[stat] || stat;
+    label.title = STAT_HELP[stat] || stat;
+    tr.appendChild(label);
+
+    // Mark the leader, so the eye lands on the difference rather than
+    // reading four numbers and doing the comparison itself. Games played is
+    // context, not a contest, so it is left unmarked — more games is not
+    // better, and highlighting it would imply otherwise.
+    const values = stat === 'gp'
+      ? []
+      : entries.map(e => e[stat]).filter(v => typeof v === 'number');
+    const best = values.length > 1
+      ? (LOWER_IS_BETTER.has(stat) ? Math.min(...values) : Math.max(...values))
+      : null;
+
+    // Compare what is shown, not the raw value. Two cells both reading 3.4
+    // are a tie as far as the reader is concerned; highlighting only one of
+    // them because the hidden decimals differ just looks broken.
+    const bestText = best !== null ? fmt(stat, best) : null;
+    entries.forEach(e => {
+      const td = document.createElement('td');
+      td.className = 'cmpval';
+      const text = fmt(stat, e[stat]);
+      td.textContent = text;
+      if (bestText !== null && typeof e[stat] === 'number' && text === bestText) {
+        td.classList.add('leader');
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  $('sorthint').textContent = '';
+  $('pager').classList.add('hidden');
+  $('rowcount').textContent =
+    `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`;
+  $('results').classList.remove('hidden');
+  $('notice').classList.add('hidden');
+}
+
 /* Browse every player. Sorting happens on the server (see sortBy), so clicking
    a column header gives the real leaderboard for that column rather than
    reordering whichever 100 rows happened to come back. */
 function allPlayers() {
   state.mode = {kind: 'all'};             // set first: fillSeasons reads the mode
+  state.page = 0;
   restoreAllSeasons();
   $('projectpanel').classList.add('hidden');
   state.sort = state.sort && state.stats.includes(state.sort)
@@ -717,7 +2262,15 @@ function recipe(name, params, title) {
   state.sort = null;
   run();
 }
-function rerun() { if (state.mode) run(); }
+function rerun() {
+  if (!state.mode) return;
+  // A different filter means a different result set, so page 7 of the old one
+  // is meaningless — and may not exist.
+  state.page = 0;
+  // Changing columns or rate re-runs whichever view is open.
+  if (state.mode.kind === 'compare') comparePlayers();
+  else run();
+}
 
 /* ---------- projections ----------
    Shown only on a player view. Outputs a range and two separate probability
@@ -820,31 +2373,39 @@ function drawProjection(d) {
         <div class="distro-scale"><span>${min.toFixed(0)}</span><span>${max.toFixed(0)}</span></div>
         <div class="distro-key">
           Dark band: where about two thirds of games land. Light band: about 95%.
-          ${line !== null ? ' Red mark is your line.' : ''}
+          ${line !== null ? ' The amber mark is your line.' : ''}
         </div>
       </div>
     </div>
 
     ${la ? `
     <div class="oddsrow">
-      <div class="oddsitem">
-        <div class="k">Model says over ${la.line}</div>
-        <div class="v">${(la.model_over_probability * 100).toFixed(0)}%</div>
+      <div class="oddsitem" data-tip="A normal spread around the projection. Backtested as the best-calibrated of six methods across the range of line placements.">
+        <div class="k">Chance of going over ${la.line}</div>
+        <div class="v">${(la.over_probability * 100).toFixed(0)}%</div>
       </div>
-      <div class="oddsitem">
-        <div class="k">Actually went over, last ${la.games}</div>
+      <div class="oddsitem" data-tip="The same question answered from this player's own game log instead of a curve. Where the two disagree, the distribution isn't symmetric.">
+        <div class="k">From his game log</div>
+        <div class="v">${(la.empirical_probability * 100).toFixed(0)}%</div>
+      </div>
+      <div class="oddsitem" data-tip="The raw count over the lookback window, unweighted.">
+        <div class="k">Cleared it, last ${la.games}</div>
         <div class="v">${(la.empirical_over_rate * 100).toFixed(0)}% <span class="k">(${la.empirical_record})</span></div>
       </div>
-      <div class="oddsitem">
+      <div class="oddsitem" data-tip="At −110 you risk $110 to win $100, so you need to win 52.4% of the time just to break even.">
         <div class="k">Break-even at −110</div>
         <div class="v">52.4%</div>
       </div>
-    </div>` : ''}
+    </div>
+    ${la.centered ? `<div class="knownbias">Known bias: with the line this
+      close to the projection, backtesting says this figure runs about
+      <b>8 points hot</b> on the over. Scoring is right-skewed, so a symmetric
+      spread overstates the high side.</div>` : ''}` : ''}
 
     <div class="adjlist">${adj.join('')}</div>
 
     <div class="caveats">
-      ${la ? 'These two percentages measure different things and often disagree — the second ignores opponent and venue. ' : ''}
+      ${la ? 'These percentages are computed differently and often disagree. Where they do, the distribution is not symmetric. ' : ''}
       This model sees box scores only:
       <ul>${d.caveats.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
     </div>`;
@@ -858,7 +2419,28 @@ function syncStatPick() {
   });
 }
 
+/* Every view that fetches takes a ticket from here and checks it is still the
+   newest before touching the page.
+
+   Without this, two requests in flight race: the one that resolves last wins
+   the table, and that is not necessarily the one you asked for most recently.
+   The finder makes this easy to hit — it fires on each typed digit and each
+   dropdown change — and the symptom is ugly, a table of games contradicting
+   the filters shown above it. Cheap to prevent, so prevent it. */
+let fetchSeq = 0;
+
+/* Claim the page for whatever is being shown now, and invalidate anything
+   still in flight. A view that renders without fetching has to claim it too,
+   or a request started a moment earlier will resolve and draw over it —
+   which is exactly how leaving the finder for an empty comparison used to
+   put the leaderboard back. */
+function claimView() {
+  $('loading').classList.add('hidden');
+  return ++fetchSeq;
+}
+
 async function run() {
+  const ticket = ++fetchSeq;
   $('loading').classList.remove('hidden');
   $('notice').classList.add('hidden');
 
@@ -888,12 +2470,40 @@ async function run() {
       stats: state.stats.join(','), per_mode: state.perMode,
       season_type: seasonType, order_by: sortBy,
       asc: state.sortAsc ? '1' : '0',
-      min_games: minGames || 0, limit: 100,
+      min_games: minGames || 0,
+      limit: PAGE_SIZE, offset: state.page * PAGE_SIZE,
     });
     if (season) p.set('season', season);
     url = '/api/query?' + p;
     title = `Players by ${PRETTY[sortBy] || sortBy}` +
             (season ? `, ${seasonLabel(+season)}` : ', all seasons');
+  } else if (state.mode.kind === 'games') {
+    const p = new URLSearchParams({
+      stats: finderStats().join(','),
+      season_type: seasonType,
+      order_by: state.sort || 'game_date',
+      asc: state.sortAsc ? '1' : '0',
+      limit: PAGE_SIZE, offset: state.page * PAGE_SIZE,
+    });
+    const where = conditionString();
+    if (where) p.set('where', where);
+    if (season) p.set('season', season);
+    ['team', 'opponent', 'venue', 'result'].forEach(k => {
+      if (state.find[k]) p.set(k, state.find[k]);
+    });
+
+    // A player picked from the suggestions is filtered by id, so "Curry"
+    // means the one that was clicked. Free text still works as a substring
+    // for anyone who types a name and hits enter.
+    const typed = $('search').value.trim();
+    if (typed && state.find.playerIds && typed === state.find.playerLabel) {
+      p.set('player_ids', state.find.playerIds.join(','));
+    } else if (typed) {
+      p.set('player', typed);
+    }
+
+    url = '/api/finder?' + p;
+    title = finderTitle(typed, season);
   } else {
     const p = new URLSearchParams({season_type: seasonType, limit: 50, ...state.mode.params});
     if (season && state.mode.name !== 'single-digit-scoring') p.set('season', season);
@@ -908,10 +2518,14 @@ async function run() {
   try {
     data = await fetch(url).then(r => r.json());
   } catch (e) {
+    if (ticket !== fetchSeq) return;
     $('loading').classList.add('hidden');
     return showNotice('Lost the server',
       '<p>The local server stopped responding. Restart it with <code>nbastats serve</code>.</p>');
   }
+  // Superseded while this was in flight: the newer request owns the page now,
+  // and it will clear the spinner itself.
+  if (ticket !== fetchSeq) return;
   $('loading').classList.add('hidden');
 
   if (data.error) {
@@ -919,6 +2533,7 @@ async function run() {
   }
 
   state.rows = data.rows || [];
+  state.total = data.total ?? state.rows.length;
 
   // First load of a player: scope the dropdown to the seasons they played.
   if (state.mode.kind === 'player' && state.needsSeasonScope) {
@@ -929,10 +2544,12 @@ async function run() {
   }
 
   if (!state.rows.length) {
-    return showNotice('Nothing matched',
-      state.mode.kind === 'player'
-        ? '<p>No games for that player in these filters. Try the regular season, or clear the minimum games.</p>'
-        : '<p>Try a wider season range, or lower the minimum games.</p>');
+    const why = {
+      player: '<p>No games for that player in these filters. Try the regular season, or clear the minimum games.</p>',
+      games: '<p>No game in the loaded seasons matches all of those conditions at once. Loosen one, or widen the season.</p>',
+    };
+    return showNotice('Nothing matched', why[state.mode.kind] ||
+      '<p>Try a wider season range, or lower the minimum games.</p>');
   }
   $('sheettitle').textContent = title;
   draw();
@@ -942,6 +2559,32 @@ async function run() {
   if (state.mode.kind === 'player') loadProjection();
 }
 
+/* Where the context columns sit, before any stat.
+
+   The badge goes before the name because it is the strongest thing on the
+   row to find by eye, and scanning for a team is a common way in. Games
+   played and minutes follow the name in that order: both say how much of a
+   season a line is built on, which is what you need before reading the
+   averages beside them rather than after.
+
+   Anything not listed — the stats, and the extra columns some recipes
+   return — keeps the order the query gave it, after these. */
+const LEAD_COLS = ['game_date', 'team', 'player', 'season',
+                   'gp', 'opp', 'wl', 'score', 'min'];
+
+function orderColumns(cols) {
+  const rank = (c) => {
+    const i = LEAD_COLS.indexOf(c);
+    return i === -1 ? LEAD_COLS.length : i;
+  };
+  // Index as the tiebreaker keeps this a stable sort in every engine, so
+  // columns that share a rank stay in the order the query produced them.
+  return cols
+    .map((c, i) => [c, i])
+    .sort((a, b) => (rank(a[0]) - rank(b[0])) || (a[1] - b[1]))
+    .map(([c]) => c);
+}
+
 /* ---------- table ---------- */
 function draw() {
   const rows = state.rows;
@@ -949,11 +2592,15 @@ function draw() {
   // on every row just costs a column.
   const hide = new Set(HIDDEN_COLS);
   if (state.mode.kind === 'player') hide.add('player');
-  const cols = Object.keys(rows[0]).filter(c => !hide.has(c));
+  // Every row team-scoped: the Team column is blank throughout, so drop it.
+  if (state.mode.kind === 'compare' && rows.every(r => !r.team)) hide.add('team');
+  // A game row is dated, so the season column would only restate the date.
+  if (state.mode.kind === 'games') hide.add('season');
+  const cols = orderColumns(Object.keys(rows[0]).filter(c => !hide.has(c)));
 
-  // In 'all' mode the server already sorted; re-sorting here would only
-  // reorder the current page and contradict the header arrow.
-  if (state.sort && state.mode.kind !== 'all') {
+  // Where the server sorted, re-sorting here would only reorder the current
+  // page and contradict the header arrow.
+  if (state.sort && !SERVER_SORTED.has(state.mode.kind)) {
     const k = state.sort, dir = state.sortAsc ? 1 : -1;
     rows.sort((a, b) => {
       const x = a[k], y = b[k];
@@ -965,8 +2612,14 @@ function draw() {
 
   const thead = $('thead');
   thead.innerHTML = '';
+  $('sheet').classList.remove('cmptable');   // the row-oriented tables fill
   const tr = document.createElement('tr');
-  tr.appendChild(document.createElement('th'));   // rank gutter
+  // The gutter is a rank, so it only belongs where the rows are competing for
+  // a position. One player's career rows are seasons, not a ranking — there
+  // the Season column already identifies each row, and numbering them 1, 2
+  // would just look like a standing that never changes when you re-sort.
+  const showRank = !['player', 'compare'].includes(state.mode.kind);
+  if (showRank) tr.appendChild(document.createElement('th'));
   cols.forEach(c => {
     const th = document.createElement('th');
     th.textContent = PRETTY[c] || c;
@@ -979,10 +2632,11 @@ function draw() {
     th.onclick = () => {
       if (state.sort === c) state.sortAsc = !state.sortAsc;
       else { state.sort = c; state.sortAsc = false; }
-      // Browsing everyone: ask the database to re-sort, so the top of the
-      // table is the real leader and not just the best of this page.
-      // A single player's career is short enough to sort in place.
-      if (state.mode.kind === 'all') run();
+      state.page = 0;          // a new ranking starts at its own first page
+      // Browsing everyone, or finding games: ask the database to re-sort, so
+      // the top of the table is the real leader and not just the best of this
+      // page. A single player's career is short enough to sort in place.
+      if (SERVER_SORTED.has(state.mode.kind)) run();
       else draw();
     };
     tr.appendChild(th);
@@ -991,30 +2645,62 @@ function draw() {
 
   const tbody = $('tbody');
   tbody.innerHTML = '';
+  // The gutter shows where a row ranks overall, not where it sits on screen.
+  // Sorted ascending you're looking at the bottom of the list, so the first
+  // row is last overall — numbering it 1 would say the opposite.
+  // On page 3 the first row is 201st, not 1st, so the offset counts too.
+  const total = state.total || rows.length;
+  const paged = SERVER_SORTED.has(state.mode.kind);
+  const skipped = paged ? state.page * PAGE_SIZE : 0;
+  const rankOf = (i) => (paged && state.sortAsc)
+    ? total - skipped - i
+    : skipped + i + 1;
+
   rows.forEach((r, i) => {
     const tr = document.createElement('tr');
-    const rank = document.createElement('td');
-    rank.className = 'rank'; rank.textContent = i + 1;
-    tr.appendChild(rank);
+    if (showRank) {
+      const rank = document.createElement('td');
+      rank.className = 'rank'; rank.textContent = rankOf(i);
+      tr.appendChild(rank);
+    }
     cols.forEach(c => {
       const td = document.createElement('td');
       if (TEXT_COLS.has(c)) td.classList.add('text');
-      td.textContent = fmt(c, r[c]);
+      if (c === 'team' && r[c]) {
+        td.classList.add('teamcell');
+        td.appendChild(teamBadges(r[c]));
+      } else {
+        td.textContent = fmt(c, r[c]);
+      }
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
   });
 
-  $('rowcount').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'}`;
+  // Say when the page is only part of the matches, so a rank of 412 has
+  // somewhere to come from.
+  // Say plainly how to re-rank the table, instead of relying on people to
+  // discover that the headers are buttons.
+  $('sorthint').textContent =
+    SERVER_SORTED.has(state.mode.kind) ? 'click a column to rank by it  ·  ' : '';
+
+  const noun = state.mode.kind === 'games' ? 'game' : 'row';
+  $('rowcount').textContent = (state.total > rows.length)
+    ? `${rows.length} of ${state.total.toLocaleString()}`
+    : `${rows.length} ${noun}${rows.length === 1 ? '' : 's'}`;
   $('results').classList.remove('hidden');
   $('notice').classList.add('hidden');
+  drawPager();
 }
 
 function fmt(col, v) {
   if (v === null || v === undefined) return '—';
   if (col === 'season') return seasonLabel(v);
-  if (col.endsWith('_pct') && typeof v === 'number') {
-    return v.toFixed(3).replace(/^0/, '');     // .486, the way box scores print it
+  // Two different kinds of percentage. Shooting rates are 0–1 and print the
+  // way a box score does (.486). Usage, rebound share and the rest are
+  // already on a 0–100 scale, so they take one decimal (22.5).
+  if (typeof v === 'number' && col.endsWith('_pct')) {
+    return RATIO_PCTS.has(col) ? v.toFixed(3).replace(/^0/, '') : v.toFixed(1);
   }
   if (typeof v === 'number' && !Number.isInteger(v)) return v.toFixed(1);
   if (typeof v === 'number') return v.toLocaleString();

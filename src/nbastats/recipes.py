@@ -43,12 +43,14 @@ def double_doubles(conn: sqlite3.Connection, player: str | None = None,
         params.append(season)
 
     return _rows(conn, f"""
-        SELECT p.full_name AS player, pg.season,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, pg.season,
                SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 2 THEN 1 ELSE 0 END) AS double_doubles,
                SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 3 THEN 1 ELSE 0 END) AS triple_doubles,
                COUNT(*) AS gp
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE {" AND ".join(where)}
         GROUP BY pg.player_id, pg.season
         HAVING double_doubles > 0
@@ -66,7 +68,8 @@ def triple_double_leaders(conn, season: int | None = None,
         params.append(season)
 
     return _rows(conn, f"""
-        SELECT p.full_name AS player, pg.season,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, pg.season,
                SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 3 THEN 1 ELSE 0 END) AS triple_doubles,
                SUM(CASE WHEN ({_CATEGORY_COUNT}) >= 2 THEN 1 ELSE 0 END) AS double_doubles,
                COUNT(*) AS gp,
@@ -75,6 +78,7 @@ def triple_double_leaders(conn, season: int | None = None,
                ROUND(CAST(SUM(pg.ast) AS REAL) / COUNT(*), 1) AS apg
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE {" AND ".join(where)}
         GROUP BY pg.player_id, pg.season
         HAVING triple_doubles > 0
@@ -94,10 +98,12 @@ def triple_doubles(conn, player=None, season=None, season_type=REG, limit=50):
         params.append(season)
 
     return _rows(conn, f"""
-        SELECT p.full_name AS player, pg.season, pg.game_date,
+        SELECT t.abbreviation AS team, p.full_name AS player,
+               pg.season, pg.game_date,
                pg.pts, pg.reb, pg.ast, pg.stl, pg.blk
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE {" AND ".join(where)}
         ORDER BY pg.game_date DESC
         LIMIT ?
@@ -120,11 +126,13 @@ def games_above_threshold(conn, stat: str = "pts", threshold: int = 40,
         params.append(season)
 
     return _rows(conn, f"""
-        SELECT p.full_name AS player, COUNT(*) AS games,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, COUNT(*) AS games,
                MAX(pg.{stat}) AS best, MIN(pg.season) AS first_season,
                MAX(pg.season) AS last_season
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE {" AND ".join(where)}
         GROUP BY pg.player_id
         ORDER BY games DESC
@@ -146,11 +154,13 @@ def single_digit_scoring_seasons(conn, min_games: int = 58,
     1998-99 was 50 games and 2011-12 was 66.
     """
     return _rows(conn, """
-        SELECT p.full_name AS player, pg.season, COUNT(*) AS gp,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, pg.season, COUNT(*) AS gp,
                ROUND(CAST(SUM(pg.pts) AS REAL) / COUNT(*), 2) AS ppg,
                SUM(pg.pts) AS total_pts
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE pg.season_type = ?
         GROUP BY pg.player_id, pg.season
         HAVING gp >= ? AND ppg < 10.0
@@ -167,12 +177,14 @@ def season_averages_club(conn, pts: float = 20, reb: float = 10, ast: float = 5,
     The classic 20/10/5 query; change the thresholds for any other club.
     """
     return _rows(conn, """
-        SELECT p.full_name AS player, pg.season, COUNT(*) AS gp,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, pg.season, COUNT(*) AS gp,
                ROUND(CAST(SUM(pg.pts) AS REAL) / COUNT(*), 1) AS ppg,
                ROUND(CAST(SUM(pg.reb) AS REAL) / COUNT(*), 1) AS rpg,
                ROUND(CAST(SUM(pg.ast) AS REAL) / COUNT(*), 1) AS apg
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE pg.season_type = ?
         GROUP BY pg.player_id, pg.season
         HAVING gp >= ? AND ppg >= ? AND rpg >= ? AND apg >= ?
@@ -185,10 +197,12 @@ def iron_man_seasons(conn, min_games: int = 82, season_type: str = REG,
                      limit: int = 50) -> list[dict]:
     """Players who appeared in every game (or at least min_games) of a season."""
     return _rows(conn, """
-        SELECT p.full_name AS player, pg.season, COUNT(*) AS gp,
+        SELECT GROUP_CONCAT(DISTINCT t.abbreviation) AS team,
+               p.full_name AS player, pg.season, COUNT(*) AS gp,
                ROUND(SUM(pg.min), 0) AS total_min
         FROM player_games pg
         JOIN players p ON p.player_id = pg.player_id
+        JOIN teams   t ON t.team_id   = pg.team_id
         WHERE pg.season_type = ?
         GROUP BY pg.player_id, pg.season
         HAVING gp >= ?

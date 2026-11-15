@@ -177,6 +177,8 @@ def walk_forward(conn, season: int, stat: str, min_games: int,
                 "base": base,           # before the opponent adjustment
                 "naive": mean,          # flat average of the same window
                 "sd": sd,
+                # newest-first, to feed the empirical probability
+                "history": list(reversed(vals)),
             })
 
     return results
@@ -217,26 +219,125 @@ def summarize(results: list[dict], stat: str) -> None:
         print("    The extra machinery is not paying for itself on this data.")
         print("    That is a real result, not a bug — report it as one.")
 
-    # Calibration against the median line, the hardest case: a line set exactly
-    # at the projection should go over about half the time.
-    print(f"\n  Calibration (line set at each projection):")
-    buckets = {}
+    # Calibration against a line set at each projection, the hardest case.
+    # Both methods are scored so the difference is visible: the normal
+    # approximation assumes a symmetric spread around the mean, the empirical
+    # one reads the probability off the player's own distribution and so keeps
+    # the right skew in scoring.
     from statistics import NormalDist
-    for r in results:
-        if r["sd"] <= 0:
-            continue
-        line = round(r["projection"] * 2) / 2      # nearest half point
-        z = (line - r["projection"]) / r["sd"]
-        p_over = 1 - NormalDist().cdf(z)
-        b = min(int(p_over * 10) / 10, 0.9)
-        buckets.setdefault(b, []).append(1 if r["actual"] > line else 0)
+    from nbastats.project import adaptive_prior, empirical_over_probability
 
-    print(f"    {'predicted':>10}  {'actual':>8}  {'games':>7}")
-    for b in sorted(buckets):
-        hits = buckets[b]
-        if len(hits) < 30:
-            continue
-        print(f"    {b + 0.05:>9.0%}  {sum(hits) / len(hits):>8.1%}  {len(hits):>7,}")
+    # Lines are tested at several distances from the projection, measured in
+    # standard deviations. Scoring only at the projection flatters any method
+    # that refuses to commit: that is the one spot where which side the result
+    # lands on really is close to a coin flip. A real user types lines away
+    # from the center too, and a method that still says "45%" when the line is
+    # two standard deviations below the projection is useless.
+    OFFSETS = [-1.5, -0.75, 0.0, 0.75, 1.5]
+
+    def calibrate(prob_fn, offset=0.0):
+        buckets = {}
+        for r in results:
+            if r["sd"] <= 0:
+                continue
+            raw = r["projection"] + offset * r["sd"]
+            line = round(raw * 2) / 2                  # nearest half point
+            if line < 0.5:
+                continue                               # a line below zero is not a line
+            p_over = prob_fn(r, line)
+            b = min(int(p_over * 10) / 10, 0.9)
+            buckets.setdefault(b, []).append(1 if r["actual"] > line else 0)
+        return buckets
+
+    def weighted_miss(buckets, floor=30):
+        total = weighted = 0
+        for b, hits in buckets.items():
+            if len(hits) < floor:
+                continue
+            pred, act, n = b + 0.05, sum(hits) / len(hits), len(hits)
+            weighted += abs(pred - act) * n
+            total += n
+        return (weighted / total) if total else 0.0
+
+    def show(title, buckets):
+        """Report each bucket, and a games-weighted average miss.
+
+        Weighting matters: an unweighted "worst bucket" number is decided by
+        whichever bucket holds fifty games, which is noise. The weighted
+        average is what you actually experience across a season.
+        """
+        print(f"\n  {title}")
+        print(f"    {'predicted':>10}  {'actual':>8}  {'gap':>7}  {'games':>8}")
+        total_games = weighted = 0
+        for b in sorted(buckets):
+            hits = buckets[b]
+            if len(hits) < 30:
+                continue
+            pred, act, n = b + 0.05, sum(hits) / len(hits), len(hits)
+            weighted += abs(pred - act) * n
+            total_games += n
+            flag = "  (thin)" if n < 200 else ""
+            print(f"    {pred:>9.0%}  {act:>8.1%}  {pred - act:>+7.1%}  {n:>8,}{flag}")
+        avg = weighted / total_games if total_games else 0
+        print(f"    weighted average miss: {avg:.1%}")
+        return avg
+
+    # Several candidates, scored the same way, so the data picks rather than
+    # the author. BASE_RATE is deliberately included: if a single constant
+    # beats every clever method, that is the most important thing to know,
+    # because it means none of them discriminate.
+    BASE_RATE = 0.45
+
+    candidates = [
+        ("normal approximation",
+         lambda r, line: 1 - NormalDist().cdf((line - r["projection"]) / r["sd"])),
+        ("empirical, light shrinkage (prior=1)",
+         lambda r, line: empirical_over_probability(r["history"], line, prior=1)),
+        ("empirical, heavy shrinkage (prior=12)",
+         lambda r, line: empirical_over_probability(r["history"], line, prior=12)),
+        ("empirical, heavy shrinkage toward 45%",
+         lambda r, line: empirical_over_probability(
+             r["history"], line, prior=12, prior_center=BASE_RATE)),
+        ("adaptive shrinkage (current default)",
+         lambda r, line: empirical_over_probability(
+             r["history"], line,
+             prior=adaptive_prior(line, r["projection"], r["sd"]),
+             prior_center=BASE_RATE)),
+        (f"constant {BASE_RATE:.0%} (predicts nothing)",
+         lambda r, line: BASE_RATE),
+    ]
+
+    # Detail tables at the projection, the regime people quote most.
+    for name, fn in candidates:
+        show(f"Calibration at the projection, {name}:", calibrate(fn, 0.0))
+
+    # Then the same methods across the full range of line placements.
+    print(f"\n  {'=' * 62}")
+    print("  Calibration miss by how far the line sits from the projection")
+    print("  (in standard deviations; lower is better)")
+    header = "".join(f"{o:>+8.2f}" for o in OFFSETS)
+    print(f"\n    {'method':<40}{header}{'   mean':>9}")
+    print(f"    {'-' * (40 + 8 * len(OFFSETS) + 9)}")
+
+    table = []
+    for name, fn in candidates:
+        per_offset = [weighted_miss(calibrate(fn, o)) for o in OFFSETS]
+        mean_miss = sum(per_offset) / len(per_offset)
+        table.append((mean_miss, name, per_offset))
+        cells = "".join(f"{m:>8.1%}" for m in per_offset)
+        print(f"    {name[:40]:<40}{cells}{mean_miss:>9.1%}")
+
+    table.sort()
+    best_mean, best_name, best_cols = table[0]
+    print(f"\n  Best across all line placements: {best_name} ({best_mean:.1%}).")
+
+    at_line = {name: cols[OFFSETS.index(0.0)] for _, name, cols in table}
+    winner_at_line = min(at_line, key=at_line.get)
+    if winner_at_line != best_name:
+        print(f"  Note: {winner_at_line} wins at the projection ("
+              f"{at_line[winner_at_line]:.1%}) but not overall — a method can")
+        print(f"  look good there by refusing to commit, then fall apart on")
+        print(f"  lines further out. Judge on the mean, not the middle column.")
 
     print(f"\n  Every projection above used only games played before the game")
     print(f"  being scored, opponent strength included. Calibration says the")

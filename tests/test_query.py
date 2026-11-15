@@ -2,7 +2,7 @@
 
 import pytest
 
-from nbastats.query import StatQuery, build_sql, run
+from nbastats.query import StatQuery, build_sql, count, run
 
 
 def test_per_game_math(conn):
@@ -28,12 +28,56 @@ def test_per36_math(conn):
 
 
 def test_per100_math(conn):
-    """Possessions = fga - oreb + tov + 0.44*fta
-                   = 80 - 4 + 8 + 0.44*8 = 87.52
-       100 pts / 87.52 * 100 = 114.26"""
+    """Per 100 TEAM possessions while on the floor, not per 100 of the
+    player's own used possessions.
+
+    Alpha, 2020: 100 points in 4 games, 36 minutes each (144 total).
+    Boston's team line each game: fga 88, oreb 10, tov 14, fta 22, min 240.
+
+        team poss/game = 88 - 10 + 14 + 0.44*22       = 101.68
+        team poss      = 101.68 * 4                   = 406.72
+        floor share    = 144 / (960 / 5)              = 0.75
+        poss on floor  = 406.72 * 0.75                = 305.04
+        per 100        = 100 / 305.04 * 100           = 32.78
+
+    An earlier version divided by the player's own possessions and returned
+    114.26 — a figure that would mean one player outscoring a whole team.
+    """
     rows = run(conn, StatQuery(player="alpha", season=2020, stats=["pts"],
                                per_mode="per100"))
-    assert rows[0]["pts"] == pytest.approx(114.26, abs=0.05)
+    assert rows[0]["pts"] == pytest.approx(32.78, abs=0.05)
+
+
+def test_per100_is_in_a_plausible_range(conn):
+    """A guard against the class of bug this replaced: no real player scores
+    anywhere near 100 points per 100 possessions."""
+    rows = run(conn, StatQuery(season=2020, stats=["pts"], per_mode="per100"))
+    assert rows, "expected some rows"
+    for r in rows:
+        assert 0 <= r["pts"] < 70, f"{r['player']} at {r['pts']} per 100"
+
+
+def test_per100_joins_team_games(conn):
+    """The possession estimate needs the team box score."""
+    sql, _ = build_sql(StatQuery(stats=["pts"], per_mode="per100"))
+    assert "team_games tm" in sql
+
+
+def test_other_per_modes_skip_team_join(conn):
+    for mode in ("totals", "per_game", "per36"):
+        sql, _ = build_sql(StatQuery(stats=["pts"], per_mode=mode))
+        assert "team_games" not in sql, f"{mode} should not need the join"
+
+
+def test_per100_scales_with_minutes(conn):
+    """Two players on the same team: fewer minutes means fewer possessions on
+    the floor, so per-100 is not just a rescaled per-game number."""
+    rows = run(conn, StatQuery(season=2020, stats=["pts"], per_mode="per100"))
+    by_name = {r["player"]: r["pts"] for r in rows}
+    # Gamma plays 18 min to Alpha's 36 and scores 6 to Alpha's 25.
+    # Per game that's a 4.2x gap; per 100 it narrows, because Gamma's
+    # possessions-on-floor denominator is half the size.
+    assert by_name["Alpha Scorer"] / by_name["Gamma Bench"] < 4.2
 
 
 def test_rate_stats_not_rescaled(conn):
@@ -240,10 +284,15 @@ def test_order_by_valid_column_is_respected(conn):
 
 
 def test_order_by_always_present_column(conn):
-    """gp and season are always in the result, so they're always sortable."""
-    for col in ("gp", "season"):
-        sql, _ = build_sql(StatQuery(stats=["pts"], order_by=col))
-        assert f"ORDER BY {col}" in sql
+    """gp and season are always in the result, so they're always sortable.
+
+    season comes out table-qualified because team_games also has a column by
+    that name once advanced stats join it in.
+    """
+    sql, _ = build_sql(StatQuery(stats=["pts"], order_by="gp"))
+    assert "ORDER BY gp" in sql
+    sql, _ = build_sql(StatQuery(stats=["pts"], order_by="season"))
+    assert "ORDER BY pg.season" in sql
 
 
 def test_order_by_totals_column(conn):
@@ -252,9 +301,46 @@ def test_order_by_totals_column(conn):
     assert "ORDER BY pts_total" in sql
 
 
-def test_empty_stats_rejected(conn):
-    with pytest.raises(ValueError, match="at least one column"):
-        run(conn, StatQuery(stats=[]))
+def test_no_stats_gives_the_identity_columns(conn):
+    """Clearing every column is a deliberate choice, not an error.
+
+    What comes back is who, which team, which season and how many games — a
+    clean list to add columns back onto.
+    """
+    rows = run(conn, StatQuery(stats=[]))
+    assert rows, "no stats should still return the players"
+    assert set(rows[0]) == {"player_id", "player", "team", "season", "gp"}
+    # Careers rather than seasons: the season column goes, the rest stay.
+    career = run(conn, StatQuery(stats=[], group_by_season=False))
+    assert set(career[0]) == {"player_id", "player", "team", "gp"}
+
+
+def test_no_stats_still_counts_games(conn):
+    """Alpha played 4 games in 2020, Beta 4, Gamma 4."""
+    rows = run(conn, StatQuery(stats=[], season=2020))
+    assert {r["player"]: r["gp"] for r in rows} == {
+        "Alpha Scorer": 4, "Beta Allrounder": 4, "Gamma Bench": 4}
+
+
+def test_no_stats_orders_by_games_played(conn):
+    """With no stat to sort by, the fallback has to be a column that exists —
+    reaching for stats[0] would raise IndexError."""
+    sql, _ = build_sql(StatQuery(stats=[]))
+    assert "ORDER BY gp" in sql
+    rows = run(conn, StatQuery(stats=[], group_by_season=False))
+    counts = [r["gp"] for r in rows]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_no_stats_with_a_season_breakdown(conn):
+    rows = run(conn, StatQuery(stats=[], player="alpha", group_by_season=True))
+    assert {r["season"]: r["gp"] for r in rows} == {2020: 4, 2021: 2}
+
+
+def test_unknown_stat_still_rejected_when_list_is_short(conn):
+    """Allowing an empty list must not weaken the allowlist."""
+    with pytest.raises(ValueError, match="unknown stat"):
+        run(conn, StatQuery(stats=["dunks"]))
 
 
 def test_derived_counts_as_columns(conn):
@@ -317,3 +403,141 @@ def test_traded_player_lists_both_teams(conn):
 def test_team_filter_still_works_with_team_column(conn):
     rows = run(conn, StatQuery(team="LAL", season=2020, stats=["pts"]))
     assert all("LAL" in r["team"] for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# Row counts, for ranking a page that may be truncated
+# ---------------------------------------------------------------------------
+
+def test_count_matches_row_count_when_not_truncated(conn):
+    q = StatQuery(season=2020, stats=["pts"])
+    assert count(conn, q) == len(run(conn, q))
+
+
+def test_count_ignores_limit(conn):
+    """The limit must not change how many rows the filters actually match."""
+    full = count(conn, StatQuery(season=2020, stats=["pts"]))
+    assert count(conn, StatQuery(season=2020, stats=["pts"], limit=1)) == full
+    assert len(run(conn, StatQuery(season=2020, stats=["pts"], limit=1))) == 1
+
+
+def test_count_respects_min_games(conn):
+    loose = count(conn, StatQuery(season=2020, stats=["pts"], min_games=1))
+    strict = count(conn, StatQuery(season=2020, stats=["pts"], min_games=4))
+    assert strict <= loose
+
+
+def test_count_respects_player_filter(conn):
+    assert count(conn, StatQuery(player="alpha", stats=["pts"],
+                                 group_by_season=False)) == 1
+
+
+def test_count_respects_season_filter(conn):
+    one = count(conn, StatQuery(season=2021, stats=["pts"]))
+    both = count(conn, StatQuery(season_range=(2020, 2021), stats=["pts"]))
+    assert both > one
+
+
+def test_count_career_mode_collapses_seasons(conn):
+    by_season = count(conn, StatQuery(stats=["pts"], group_by_season=True))
+    career = count(conn, StatQuery(stats=["pts"], group_by_season=False))
+    assert career < by_season
+
+
+# ---------------------------------------------------------------------------
+# Advanced stats in a single player's season-by-season view
+# ---------------------------------------------------------------------------
+
+def test_advanced_stats_sorted_by_season(conn):
+    """Regression: the advanced-stat joins bring team_games into the query,
+    which also has a `season` column, so a bare ORDER BY season was ambiguous
+    and SQLite refused the whole query. The player view always sorts by
+    season, so advanced stats were broken there specifically."""
+    rows = run(conn, StatQuery(player="alpha", stats=["usg_pct"],
+                               order_by="season", descending=False))
+    assert len(rows) == 2
+    assert [r["season"] for r in rows] == [2020, 2021]
+    assert all(r["usg_pct"] is not None for r in rows)
+
+
+def test_order_by_unselected_column_falls_back(conn):
+    """game_date isn't selected by a grouped query, so it can't be the sort
+    key; the fallback picks the first visible column instead of erroring."""
+    sql, _ = build_sql(StatQuery(stats=["usg_pct"], order_by="game_date"))
+    assert "ORDER BY usg_pct" in sql
+
+
+def test_season_is_qualified_in_order_by(conn):
+    sql, _ = build_sql(StatQuery(stats=["usg_pct"], order_by="season"))
+    assert "ORDER BY pg.season" in sql
+
+
+def test_advanced_stats_in_career_mode(conn):
+    rows = run(conn, StatQuery(player="alpha", stats=["usg_pct"],
+                               group_by_season=False))
+    assert len(rows) == 1
+    assert rows[0]["usg_pct"] is not None
+
+
+def test_mixed_regular_and_advanced_by_season(conn):
+    rows = run(conn, StatQuery(player="alpha", stats=["pts", "usg_pct"],
+                               order_by="season"))
+    assert all(r["pts"] is not None and r["usg_pct"] is not None for r in rows)
+
+
+def test_every_advanced_stat_survives_season_sort(conn):
+    """Each one individually, since they have different join dependencies."""
+    from nbastats.query import ADVANCED_STATS
+    for stat in ADVANCED_STATS:
+        rows = run(conn, StatQuery(player="beta", stats=[stat],
+                                   order_by="season"))
+        assert rows, f"{stat} returned nothing"
+
+
+# ---------------------------------------------------------------------------
+# Paging
+# ---------------------------------------------------------------------------
+
+def test_offset_skips_rows(conn):
+    all_rows = run(conn, StatQuery(season=2020, stats=["pts"]))
+    skipped = run(conn, StatQuery(season=2020, stats=["pts"], offset=1))
+    assert len(skipped) == len(all_rows) - 1
+    assert skipped[0]["player"] == all_rows[1]["player"]
+
+
+def test_offset_with_limit_pages_cleanly(conn):
+    """Two pages of one row must cover the same players as one page of two."""
+    page1 = run(conn, StatQuery(season=2020, stats=["pts"], limit=1, offset=0))
+    page2 = run(conn, StatQuery(season=2020, stats=["pts"], limit=1, offset=1))
+    both = run(conn, StatQuery(season=2020, stats=["pts"], limit=2))
+    assert [page1[0]["player"], page2[0]["player"]] == [r["player"] for r in both]
+
+
+def test_offset_past_the_end_is_empty_not_an_error(conn):
+    assert run(conn, StatQuery(season=2020, stats=["pts"], offset=10_000)) == []
+
+
+def test_negative_offset_is_clamped(conn):
+    a = run(conn, StatQuery(season=2020, stats=["pts"], offset=-5))
+    b = run(conn, StatQuery(season=2020, stats=["pts"], offset=0))
+    assert a == b
+
+
+def test_count_ignores_offset(conn):
+    """Total has to describe the whole result set, or page numbers drift."""
+    q0 = StatQuery(season=2020, stats=["pts"])
+    q1 = StatQuery(season=2020, stats=["pts"], offset=2, limit=1)
+    assert count(conn, q0) == count(conn, q1)
+
+
+def test_page_count_follows_min_games(conn):
+    """Raising the games floor must shrink the result set, not leave empty
+    pages behind — the pager is derived from this number.
+
+    Across both seasons the fixture has four player-seasons; Alpha's 2021 is
+    only two games, so a floor of three drops exactly that one.
+    """
+    loose = count(conn, StatQuery(stats=["pts"], min_games=1))
+    strict = count(conn, StatQuery(stats=["pts"], min_games=3))
+    assert loose == 4
+    assert strict == 3

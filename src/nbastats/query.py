@@ -139,8 +139,10 @@ ADVANCED_STATS = {
 }
 
 # Advanced stats need the team/opponent joins; nothing else does.
-def _needs_team_join(stats: list[str]) -> bool:
-    return any(s in ADVANCED_STATS for s in stats)
+def _needs_team_join(stats: list[str], per_mode: str = "per_game") -> bool:
+    # per-100 needs the team box score for its possession estimate, same as
+    # the advanced stats do.
+    return per_mode == "per100" or any(s in ADVANCED_STATS for s in stats)
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +173,32 @@ def all_stats() -> set[str]:
 # Columns that always exist in a result, so they are always valid to sort on.
 ALWAYS_PRESENT = {"gp", "season", "player", "team"}
 
-POSSESSIONS = "(SUM(pg.fga) - SUM(pg.oreb) + SUM(pg.tov) + 0.44 * SUM(pg.fta))"
+# Sort keys that exist on more than one joined table and must be qualified.
+# Only `season` is reachable here: the others (game_date, season_type) aren't
+# selected by a grouped query, so they can never become the sort key.
+_ORDER_QUALIFIED = {"season": "pg.season"}
+
+# Per-100 means per 100 TEAM possessions while the player was on the floor —
+# not per 100 of the possessions he personally used. Dividing by a player's own
+# usage gives a much smaller denominator and wildly inflated figures (a 25 ppg
+# scorer comes out near 100 "points per 100", which is nonsense: that would be
+# a lone player outscoring a whole team).
+#
+# Team possessions are estimated the standard way, then scaled to the share of
+# the game the player was on the floor:
+#
+#     team_poss  = tm.fga - tm.oreb + tm.tov + 0.44 * tm.fta
+#     floor_share = player minutes / (team minutes / 5)
+#     possessions = team_poss * floor_share
+#
+# A starter on a 100-possession team playing 36 of 48 minutes is credited with
+# roughly 75 possessions, so 25 points becomes about 33 per 100 — which is the
+# range real per-100 figures actually live in.
+TEAM_POSSESSIONS = (
+    "(SUM(tm.fga) - SUM(tm.oreb) + SUM(tm.tov) + 0.44 * SUM(tm.fta))"
+)
+FLOOR_SHARE = "(SUM(pg.min) / NULLIF(SUM(tm.min) / 5.0, 0))"
+POSSESSIONS = f"({TEAM_POSSESSIONS} * {FLOOR_SHARE})"
 
 DEFAULT_STATS = ["pts", "reb", "ast"]
 
@@ -188,6 +215,10 @@ class StatQuery:
     season_range: tuple[int, int] | None = None
     season_type: str = "Regular Season"
     player: str | None = None          # name substring, case-insensitive
+    # Exact ids, for comparing a chosen set of players. Used instead of the
+    # name substring because "curry" would otherwise sweep in anyone sharing
+    # the name, and a comparison has to be of the players actually picked.
+    player_ids: list[int] | None = None
     team: str | None = None            # abbreviation, e.g. 'BOS'
     min_games: int = 0
     min_minutes: float = 0.0
@@ -195,6 +226,7 @@ class StatQuery:
     order_by: str | None = None        # defaults to the first requested stat
     descending: bool = True
     limit: int = 50
+    offset: int = 0                    # rows to skip, for paging
     # Adds a season-total column beside each counting stat. A leaderboard
     # showing 30.1 PPG is more useful when it also says 2,370 points, since a
     # high average over 12 games is a different thing from one over 79.
@@ -217,8 +249,11 @@ def build_sql(q: StatQuery) -> tuple[str, list]:
     """Turn a StatQuery into (sql, params). Exposed so you can inspect or
     log the generated SQL — useful when a number looks wrong."""
     known = all_stats()
-    if not q.stats:
-        raise ValueError("pick at least one column to show")
+    # An empty stat list is allowed and means "just the identity columns":
+    # who, which team, which season, and how many games. That is a useful
+    # view in its own right — a clean roster or season list to add columns
+    # back onto — and `gp` is selected unconditionally below, so the result
+    # is never a table with no columns in it.
     unknown = [s for s in q.stats if s not in known]
     if unknown:
         raise ValueError(
@@ -240,7 +275,7 @@ def build_sql(q: StatQuery) -> tuple[str, list]:
         group = ["pg.team_id", "t.abbreviation"]
 
     if q.group_by_season:
-        select.append("pg.season")
+        select.append("pg.season AS season")
         group.append("pg.season")
 
     select.append("COUNT(*) AS gp")
@@ -276,6 +311,10 @@ def build_sql(q: StatQuery) -> tuple[str, list]:
         where.append("LOWER(p.full_name) LIKE ?")
         params.append(f"%{q.player.lower()}%")
 
+    if q.player_ids:
+        where.append(f"pg.player_id IN ({','.join('?' * len(q.player_ids))})")
+        params += list(q.player_ids)
+
     if q.team:
         where.append("t.abbreviation = ?")
         params.append(q.team.upper())
@@ -295,13 +334,20 @@ def build_sql(q: StatQuery) -> tuple[str, list]:
     if q.include_totals and q.per_mode != "totals":
         sortable |= {f"{s}_total" for s in q.stats if s in COUNTING_STATS}
 
-    order = q.order_by if q.order_by in sortable else q.stats[0]
+    # Falls back to games played rather than to the first stat, since with no
+    # stats chosen there is no first stat to fall back to.
+    order = q.order_by if q.order_by in sortable else (
+        q.stats[0] if q.stats else "gp")
+    # Advanced stats join team_games, which also has `season` and `game_date`
+    # columns, so a bare "ORDER BY season" is ambiguous and SQLite refuses the
+    # whole query. Qualify the columns that exist on more than one table.
+    order = _ORDER_QUALIFIED.get(order, order)
     direction = "DESC" if q.descending else "ASC"
 
     # Advanced stats need the player's team box score and the opponent's for
     # each game. Joined only when asked for, so ordinary queries stay cheap.
     team_joins = ""
-    if _needs_team_join(q.stats):
+    if _needs_team_join(q.stats, q.per_mode):
         team_joins = (
             "\n        LEFT JOIN team_games tm "
             "ON tm.game_id = pg.game_id AND tm.team_id = pg.team_id"
@@ -318,9 +364,66 @@ def build_sql(q: StatQuery) -> tuple[str, list]:
         GROUP BY {", ".join(group)}
         {"HAVING " + " AND ".join(having) if having else ""}
         ORDER BY {order} {direction} NULLS LAST
-        LIMIT ?
+        LIMIT ? OFFSET ?
     """
-    return sql, params + having_params + [q.limit]
+    return sql, params + having_params + [q.limit, max(0, q.offset)]
+
+
+def build_count_sql(q: StatQuery) -> tuple[str, list]:
+    """How many rows the filters match, ignoring the limit.
+
+    Needed so a table can say where a row ranks overall. Without it, a page
+    showing the bottom 100 has no way to know whether the last row is 100th or
+    500th. The HAVING clause only uses COUNT(*) and SUM(min), so the team
+    joins advanced stats need aren't required here.
+    """
+    where, params = ["pg.season_type = ?"], [q.season_type]
+
+    if q.season is not None:
+        where.append("pg.season = ?")
+        params.append(q.season)
+    elif q.season_range is not None:
+        where.append("pg.season BETWEEN ? AND ?")
+        params += [q.season_range[0], q.season_range[1]]
+    if q.player:
+        where.append("LOWER(p.full_name) LIKE ?")
+        params.append(f"%{q.player.lower()}%")
+    if q.player_ids:
+        where.append(f"pg.player_id IN ({','.join('?' * len(q.player_ids))})")
+        params += list(q.player_ids)
+    if q.team:
+        where.append("t.abbreviation = ?")
+        params.append(q.team.upper())
+
+    group = ["pg.player_id"] if q.entity == "player" else ["pg.team_id"]
+    if q.group_by_season:
+        group.append("pg.season")
+
+    having, having_params = [], []
+    if q.min_games:
+        having.append("COUNT(*) >= ?")
+        having_params.append(q.min_games)
+    if q.min_minutes:
+        having.append("SUM(pg.min) >= ?")
+        having_params.append(q.min_minutes)
+
+    sql = f"""
+        SELECT COUNT(*) AS total FROM (
+            SELECT 1
+            FROM player_games pg
+            JOIN players p ON p.player_id = pg.player_id
+            JOIN teams   t ON t.team_id   = pg.team_id
+            WHERE {" AND ".join(where)}
+            GROUP BY {", ".join(group)}
+            {"HAVING " + " AND ".join(having) if having else ""}
+        )
+    """
+    return sql, params + having_params
+
+
+def count(conn: sqlite3.Connection, q: StatQuery) -> int:
+    sql, params = build_count_sql(q)
+    return conn.execute(sql, params).fetchone()[0]
 
 
 def run(conn: sqlite3.Connection, q: StatQuery) -> list[dict]:
